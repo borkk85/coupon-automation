@@ -14,6 +14,21 @@ require_once plugin_dir_path(__FILE__) . 'includes/api-handler.php';
 require_once plugin_dir_path(__FILE__) . 'includes/main-functions.php';
 // require_once plugin_dir_path(__FILE__) . 'includes/populate_brands.php';
 
+// Hook the scheduled event to the data processing function
+add_action('fetch_and_store_data_event', 'fetch_and_process_api_data');
+
+/**
+ * Schedule the daily fetch and store process and run it immediately.
+ */
+function schedule_fetch_and_store_data() {
+    if (!wp_next_scheduled('fetch_and_store_data_event')) {
+        wp_schedule_event(time() + DAY_IN_SECONDS, 'daily', 'fetch_and_store_data_event');
+    }
+
+    // Kick off the first run right away
+    do_action('fetch_and_store_data_event');
+}
+
 add_action('admin_init', 'coupon_automation_settings');
 
 add_action('admin_enqueue_scripts', 'enqueue_coupon_automation_assets');
@@ -79,6 +94,41 @@ function handle_clear_coupon_flags() {
     wp_send_json_success('Coupon automation flags and transients cleared successfully.');
 }
 add_action('wp_ajax_clear_coupon_flags', 'handle_clear_coupon_flags');
+
+function handle_fetch_coupons() {
+    if (!check_ajax_referer('fetch_coupons_nonce', 'nonce', false)) {
+        wp_send_json_error('Security check failed.');
+    }
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions.');
+    }
+
+    schedule_fetch_and_store_data();
+
+    wp_send_json_success('Coupons fetching scheduled.');
+}
+add_action('wp_ajax_fetch_coupons', 'handle_fetch_coupons');
+
+function handle_stop_automation() {
+    if (!check_ajax_referer('stop_automation_nonce', 'nonce', false)) {
+        wp_send_json_error('Security check failed.');
+    }
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions.');
+    }
+
+    update_option('coupon_automation_stop_requested', true);
+
+    $timestamp = wp_next_scheduled('fetch_and_store_data_event');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'fetch_and_store_data_event');
+    }
+
+    wp_send_json_success('Automation stop requested.');
+}
+add_action('wp_ajax_stop_automation', 'handle_stop_automation');
 
 function coupon_automation_options_page() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
