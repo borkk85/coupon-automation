@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Plugin Name: Coupon Automation
  * Description: Automates the creation of coupons based on data from the addrevenue.io API.
@@ -8,18 +7,17 @@
  */
 
 if (!defined('ABSPATH')) {
-    exit;
+    exit; 
 }
 
 require_once plugin_dir_path(__FILE__) . 'includes/api-handler.php';
 require_once plugin_dir_path(__FILE__) . 'includes/main-functions.php';
-require_once plugin_dir_path(__FILE__) . 'includes/populate_brands.php';
+// require_once plugin_dir_path(__FILE__) . 'includes/populate_brands.php';
 
 add_action('admin_init', 'coupon_automation_settings');
 
 add_action('admin_enqueue_scripts', 'enqueue_coupon_automation_assets');
-function enqueue_coupon_automation_assets()
-{
+function enqueue_coupon_automation_assets() {
     wp_register_style('coupon-styles', plugin_dir_url(__FILE__) . 'assets/css/styles.css', false, '1.0.0');
     wp_enqueue_style('coupon-styles');
 
@@ -33,8 +31,7 @@ function enqueue_coupon_automation_assets()
     ));
 }
 
-function coupon_automation_settings()
-{
+function coupon_automation_settings() {
     register_setting('coupon-automation-settings-group', 'addrevenue_api_token');
     register_setting('coupon-automation-settings-group', 'yourl_api_token');
     register_setting('coupon-automation-settings-group', 'openai_api_key');
@@ -48,8 +45,7 @@ function coupon_automation_settings()
 add_action('admin_init', 'coupon_automation_settings');
 
 add_action('admin_menu', 'coupon_automation_menu');
-function coupon_automation_menu()
-{
+function coupon_automation_menu() {
     add_options_page(
         'Coupon Automation Settings',
         'Coupon Automation',
@@ -59,35 +55,32 @@ function coupon_automation_menu()
     );
 }
 
-function clear_coupon_automation_flags()
-{
+function clear_coupon_automation_flags() {
     delete_transient('fetch_process_running');
     delete_transient('addrevenue_processed_count');
     delete_option('coupon_automation_stop_requested');
     error_log('Coupon automation flags and transients cleared manually.');
 }
 
-function handle_clear_coupon_flags()
-{
+function handle_clear_coupon_flags() {
     error_log('handle_clear_coupon_flags called');
-
+    
     if (!check_ajax_referer('clear_transients_nonce', 'nonce', false)) {
         error_log('Nonce check failed in handle_clear_coupon_flags');
         wp_send_json_error('Security check failed.');
         return;
     }
-
+    
     error_log('Nonce check passed, proceeding to clear flags');
-
+    
     clear_coupon_automation_flags();
-
+    
     error_log('Flags cleared successfully');
     wp_send_json_success('Coupon automation flags and transients cleared successfully.');
 }
 add_action('wp_ajax_clear_coupon_flags', 'handle_clear_coupon_flags');
 
-function coupon_automation_options_page()
-{
+function coupon_automation_options_page() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['submit_api_keys'])) {
             update_option('addrevenue_api_token', sanitize_text_field($_POST['addrevenue_api_token']));
@@ -143,7 +136,7 @@ function coupon_automation_options_page()
         }
     }
 
-?>
+    ?>
     <div class="coupon-forms_wrap">
         <h1>Coupon Automation Settings</h1>
         <form method="post">
@@ -225,18 +218,17 @@ function coupon_automation_options_page()
         <div class="fetch_buttons">
             <h2>Automation Control</h2>
             <div class="coupon-messages"></div> <!-- Container for AJAX messages -->
-            <button type="button" id="fetch-coupons-button" class="button button-primary">Start Automation</button>
-            <button type="button" id="stop-automation-button" class="button button-primary">Stop Automation</button>
-            <button type="button" id="clear-flags-button" class="button button-secondary">Clear Transients</button>
-            <button type="button" id="purge-expired-coupons" class="button button-warning">Purge Expired Coupons</button>
+                <button type="button" id="fetch-coupons-button" class="button button-primary">Start Automation</button>
+                <button type="button" id="stop-automation-button" class="button button-primary">Stop Automation</button>
+                <button type="button" id="clear-flags-button" class="button button-secondary">Clear Transients</button>
+                <button type="button" id="purge-expired-coupons" class="button button-warning">Purge Expired Coupons</button>
         </div>
     </div>
-<?php
+    <?php
 }
 
 
-function add_new_brand_notification($brand_name, $brand_id)
-{
+function add_new_brand_notification($brand_name, $brand_id) {
     $notifications = get_option('coupon_automation_notifications', array());
     $notifications[] = array(
         'type' => 'brand',
@@ -247,8 +239,7 @@ function add_new_brand_notification($brand_name, $brand_id)
     update_option('coupon_automation_notifications', array_slice($notifications, -50));
 }
 
-function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id)
-{
+function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id) {
     $notifications = get_option('coupon_automation_notifications', array());
     $notifications[] = array(
         'type' => 'coupon',
@@ -260,10 +251,9 @@ function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id)
     update_option('coupon_automation_notifications', array_slice($notifications, -50));
 }
 
-function display_coupon_automation_notifications()
-{
+function display_coupon_automation_notifications() {
     $notifications = get_option('coupon_automation_notifications', array());
-
+    
     if (!empty($notifications)) {
         echo '<div id="coupon-automation-notifications" class="notice notice-success is-dismissible">';
         echo '<h3>Coupon Automation Notifications <span class="notification-count">(' . count($notifications) . ')</span></h3>';
@@ -302,7 +292,7 @@ function display_coupon_automation_notifications()
                     $message = sprintf('New coupon added: %s for %s (ID not available)', esc_html($notification['title']), esc_html($notification['brand']));
                 }
             }
-
+            
             if (!empty($message)) {
                 echo '<p>' . $message . ' at ' . esc_html($notification['time']) . '</p>';
             }
@@ -311,7 +301,7 @@ function display_coupon_automation_notifications()
         echo '<button id="clear-notifications" class="button button-secondary">Clear All Notifications</button>';
         echo '<button id="close-notifications" class="button button-secondary">Close</button>';
         echo '</div>';
-
+        
         echo '<style>
             #coupon-automation-notifications {
                 max-height: 300px;
@@ -331,7 +321,7 @@ function display_coupon_automation_notifications()
                 margin-left: 10px;
             }
         </style>';
-
+        
         echo '<script>
             jQuery(document).ready(function($) {
                 $("#clear-notifications").on("click", function() {
@@ -364,16 +354,14 @@ function display_coupon_automation_notifications()
 
 add_action('admin_notices', 'display_coupon_automation_notifications');
 
-function clear_coupon_notifications()
-{
+function clear_coupon_notifications() {
     check_ajax_referer('clear_coupon_notifications_nonce', 'nonce');
     update_option('coupon_automation_notifications', array());
     wp_send_json_success();
 }
 add_action('wp_ajax_clear_coupon_notifications', 'clear_coupon_notifications');
 
-function purge_expired_coupons()
-{
+function purge_expired_coupons() {
     $today = date('Ymd'); // Current date in ACF date format
 
     $args = array(
@@ -407,13 +395,13 @@ function purge_expired_coupons()
         while ($expired_coupons->have_posts()) {
             $expired_coupons->the_post();
             $coupon_id = get_the_ID();
-
+            
             wp_trash_post($coupon_id);
 
             $brand_terms = wp_get_post_terms($coupon_id, 'brands');
             if (!empty($brand_terms) && !is_wp_error($brand_terms)) {
                 $brand_slug = $brand_terms[0]->slug;
-
+                
                 add_post_meta($coupon_id, '_redirect_to_brand', home_url('/brands/' . $brand_slug), true);
             }
 
@@ -426,8 +414,7 @@ function purge_expired_coupons()
     return $purged_count;
 }
 
-function handle_purge_expired_coupons()
-{
+function handle_purge_expired_coupons() {
     check_ajax_referer('purge_expired_coupons_nonce', 'nonce');
 
     if (!current_user_can('manage_options')) {
@@ -440,12 +427,11 @@ function handle_purge_expired_coupons()
 }
 add_action('wp_ajax_purge_expired_coupons', 'handle_purge_expired_coupons');
 
-function redirect_trashed_coupons()
-{
+function redirect_trashed_coupons() {
     if (is_404()) {
         global $wpdb;
         $current_url = home_url($_SERVER['REQUEST_URI']);
-
+        
         $trashed_post = $wpdb->get_row($wpdb->prepare(
             "SELECT ID, post_type FROM $wpdb->posts WHERE post_name = %s AND post_type = 'coupons' AND post_status = 'trash'",
             basename($current_url)
@@ -461,4 +447,3 @@ function redirect_trashed_coupons()
     }
 }
 add_action('template_redirect', 'redirect_trashed_coupons');
-

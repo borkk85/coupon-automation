@@ -307,7 +307,7 @@ function update_brand_fields($brand_term_id, $brand_data, $market_data, $api_sou
             error_log("Failed to generate why we love content for brand: " . $brand_name);
         }
     }
-
+    
     if ($api_source === 'awin') {
         update_field('awin_id', $brand_data['id'], $term_id);
         update_field('primary_region', $brand_data['primaryRegion']['name'], $term_id);
@@ -334,7 +334,6 @@ function generate_hashtag_line($brand_name) {
         $slug
     );
 }
-
 
 function update_brand($brand_term_id, $brand_data, $market_data, $api_source = 'addrevenue') {
      if ($api_source === 'addrevenue') {
@@ -510,6 +509,8 @@ function generate_coupon_title($description) {
     }
 }
 
+add_action('retry_generate_coupon_title', 'generate_coupon_title');
+
 function generate_brand_description($brand_name, $brand_term_id, $brand_data = array()) {
     error_log("Starting brand description generation for: " . $brand_name);
 
@@ -629,115 +630,110 @@ function generate_why_we_love($brand_name, $brand_data = array()) {
         return false;
     }
 
-    // Extract content from response
     $content = $body['choices'][0]['message']['content'];
     
-    // Extract just the phrases (removing any HTML or other formatting)
     preg_match_all('/<li.*?>\s*.*?\/>([^<]+)<\/li>/', $content, $matches);
     $phrases = array_map('trim', $matches[1]);
     
     if (empty($phrases)) {
-        // Fallback to simpler extraction if HTML parsing fails
+        
         preg_match_all('/[-•]\s*([^"\n]+)/', $content, $matches);
         $phrases = array_map('trim', $matches[1]);
     }
 
-    // Ensure exactly two words per phrase
     $phrases = array_map(function($phrase) {
         $words = preg_split('/\s+/', trim($phrase));
-        return implode(' ', array_slice($words, 0, 2));
+        return implode(' ', array_slice($words, 0, 3));
     }, $phrases);
 
-    // Ensure we have exactly 3 phrases
     $phrases = array_slice($phrases, 0, 3);
     while (count($phrases) < 3) {
         $default_phrases = ['Expert Service', 'Premium Quality', 'Fast Delivery'];
         $phrases[] = $default_phrases[count($phrases)];
     }
 
-    // Complete image mappings with their keywords
     $image_mappings = [
-        'gift' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/gift-2.png',
-            'keywords' => ['gift', 'present', 'surprise', 'unique', 'special']
-        ],
-        'tag' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/tag.png',
-            'keywords' => ['price', 'value', 'affordable', 'saving', 'deal']
-        ],
-        'free' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/free.png',
-            'keywords' => ['free', 'bonus', 'extra', 'added', 'complimentary']
-        ],
-        'piggy' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/piggybank.png',
-            'keywords' => ['save', 'savings', 'discount', 'bargain', 'offer']
-        ],
-        'security' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/security-payment.png',
-            'keywords' => ['secure', 'safe', 'protected', 'trusted', 'guaranteed']
-        ],
-        'cyber' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/cyber-security.png',
-            'keywords' => ['online', 'digital', 'cyber', 'electronic', 'virtual']
-        ],
-        'social' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/social-security-1.png',
-            'keywords' => ['social', 'community', 'shared', 'connected', 'together']
-        ],
-        'certified' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/certified.png',
-            'keywords' => ['certified', 'approved', 'verified', 'tested', 'authentic']
-        ],
-        'heart' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/healthy-heart.png',
-            'keywords' => ['loved', 'preferred', 'chosen', 'favorite', 'selected']
-        ],
-        'service' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/customer-service.png',
-            'keywords' => ['service', 'support', 'help', 'care', 'assistance']
-        ],
-        '24hours' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/24-hours.png',
-            'keywords' => ['available', 'nonstop', 'constant', 'always', 'ready']
-        ],
-        'recommended' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/recommended.png',
-            'keywords' => ['recommended', 'endorsed', 'rated', 'reviewed', 'trusted']
-        ],
-        'fast' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/fast-delivery.png',
-            'keywords' => ['fast', 'quick', 'rapid', 'speedy', 'prompt']
-        ],
-        'delivery' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/delivery.png',
-            'keywords' => ['delivery', 'shipping', 'transport', 'sent', 'dispatch']
-        ],
-        'store' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/in-store-display.png',
-            'keywords' => ['store', 'shop', 'retail', 'display', 'collection']
-        ],
-        'refund' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/refund.png',
-            'keywords' => ['refund', 'return', 'money', 'guarantee', 'promise']
-        ],
-        'exchange' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/exchange.png',
-            'keywords' => ['exchange', 'swap', 'trade', 'replace', 'change']
-        ],
-        'medal' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/medal.png',
-            'keywords' => ['quality', 'premium', 'luxury', 'best', 'finest']
-        ],
-        'handmade' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/hand-made.png',
-            'keywords' => ['handmade', 'crafted', 'custom', 'unique', 'artisan']
-        ],
-        'famous' => [
-            'image' => 'https://dev.adealsweden.com/wp-content/uploads/2023/11/famous.png',
-            'keywords' => ['famous', 'popular', 'known', 'celebrated', 'recognized']
-        ]
-    ];
+                        'gift' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/gift-2.png',
+                        'keywords' => ['gift', 'present', 'surprise', 'unique', 'special', 'perfect']
+                        ],
+                        'tag' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/tag.png',
+                        'keywords' => ['price', 'value', 'affordable', 'saving', 'deal', 'budget']
+                        ],
+                        'free' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/free.png',
+                        'keywords' => ['free', 'bonus', 'extra', 'complimentary', 'gift']
+                        ],
+                        'piggy' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/piggybank.png',
+                        'keywords' => ['save', 'savings', 'discount', 'bargain', 'offer', 'cheap']
+                        ],
+                        'security' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/security-payment.png',
+                        'keywords' => ['secure', 'safe', 'protected', 'trusted', 'payment']
+                        ],
+                        'cyber' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/cyber-security.png',
+                        'keywords' => ['online', 'digital', 'cyber', 'electronic', 'virtual']
+                        ],
+                        'social' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/social-security-1.png',
+                        'keywords' => ['social', 'community', 'shared', 'connected', 'together']
+                        ],
+                        'certified' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/certified.png',
+                        'keywords' => ['certified', 'approved', 'verified', 'tested', 'authentic']
+                        ],
+                        'heart' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/healthy-heart.png',
+                        'keywords' => ['heart', 'loved', 'favorite', 'chosen', 'adored']
+                        ],
+                        'service' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/customer-service.png',
+                        'keywords' => ['customer service', 'customer', 'support', 'assistance', 'care', 'helpdesk', 'excellence']
+                        ],
+                        '24hours' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/24-hours.png',
+                        'keywords' => ['24/7', 'always', 'available', 'constant', 'nonstop']
+                        ],
+                        'recommended' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/recommended.png',
+                        'keywords' => ['recommended', 'endorsed', 'rated', 'reviewed', 'trusted']
+                        ],
+                        'fast' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/fast-delivery.png',
+                        'keywords' => ['fast', 'quick', 'rapid', 'speedy', 'prompt']
+                        ],
+                        'delivery' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/delivery.png',
+                        'keywords' => ['delivery', 'shipping', 'transport', 'sent', 'dispatch']
+                        ],
+                        'store' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/in-store-display.png',
+                        'keywords' => ['store', 'shop', 'retail', 'display', 'collection']
+                        ],
+                        'refund' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/refund.png',
+                        'keywords' => ['refund', 'return', 'money', 'guarantee', 'promise']
+                        ],
+                        'exchange' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/exchange.png',
+                        'keywords' => ['exchange', 'swap', 'trade', 'replace', 'change']
+                        ],
+                        'medal' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/medal.png',
+                        'keywords' => ['quality', 'premium', 'luxury', 'best', 'finest']
+                        ],
+                        'handmade' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/hand-made.png',
+                        'keywords' => ['handmade', 'crafted', 'custom', 'artisan', 'unique']
+                        ],
+                        'famous' => [
+                        'image' => 'https://www.adealsweden.com/wp-content/uploads/2023/11/famous.png',
+                        'keywords' => ['famous', 'popular', 'known', 'celebrated', 'recognized']
+                        ]
+                        ];
 
     $used_images = [];
     $list_items = [];
@@ -793,7 +789,6 @@ function generate_why_we_love($brand_name, $brand_data = array()) {
 
     return "<ul>\n" . implode("\n", $list_items) . "\n</ul>";
 }
-
 
 
 function translate_description($description) {
@@ -866,6 +861,7 @@ function translate_description($description) {
     }
 }
 
+add_action('retry_translate_description', 'translate_description');
 
 function short_affiliate_link($brand_affiliate_link, $advertiser_name) {
     error_log('Received advertiser name for short link: ' . $advertiser_name);

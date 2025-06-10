@@ -1,3 +1,35 @@
+// jQuery(document).ready(function($) {
+//     $('#fetch-coupons-button').on('click', function(e) {
+//         e.preventDefault();
+
+//         console.log('Button clicked');
+//         $('.coupon-messages').html('');
+
+//         $.ajax({
+//             url: couponAutomation.ajax_url,
+//             method: 'POST',
+//             data: {
+//                 action: 'fetch_coupons',
+//                 nonce: couponAutomation.nonce
+//             },
+//             beforeSend: function(xhr) {
+//                 xhr.setRequestHeader('X-WP-Nonce', couponAutomation.nonce);
+//             },
+//             success: function(response) {
+//                 console.log('AJAX success response:', response);
+//                 if (response.success) {
+//                     $('.coupon-messages').html('<div class="updated"><p>Coupons fetching and processing scheduled.</p></div>');
+//                 } else {
+//                     $('.coupon-messages').html('<div class="error"><p>Failed to schedule coupons fetching.</p></div>');
+//                 }
+//             },
+//             error: function(jqXHR, textStatus, errorThrown) {
+//                 console.log('AJAX error response:', textStatus, errorThrown);
+//                 $('.coupon-messages').html('<div class="error"><p>An error occurred while scheduling coupons fetching.</p></div>');
+//             }
+//         });
+//     });
+// });
 
 jQuery(document).ready(function($) {
     $('#fetch-coupons-button').on('click', function(e) {
