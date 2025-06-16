@@ -196,18 +196,37 @@ class Coupon_Automation_Coupon_Manager {
      * @return bool True if exists, false otherwise
      */
     private function coupon_exists($coupon_id, $api_source) {
-        if ($this->database) {
-            $existing_coupon = $this->database->get_coupon_by_external_id($coupon_id, $api_source);
-            return $existing_coupon !== null;
+        if (empty($coupon_id)) {
+            return false;
         }
         
-        // Fallback to direct query
-        $existing_coupon = get_posts([
+        // Use database service if available
+        if ($this->database) {
+            $existing_coupon = $this->database->get_coupon_by_external_id($coupon_id, $api_source);
+            if ($existing_coupon !== null) {
+                $this->logger->debug('Found existing coupon via database service', [
+                    'coupon_id' => $coupon_id,
+                    'api_source' => $api_source,
+                    'post_id' => $existing_coupon->ID
+                ]);
+                return true;
+            }
+        }
+        
+        // Fallback to direct query with more comprehensive search
+        $existing_coupons = get_posts([
             'post_type' => 'coupons',
+            'post_status' => ['publish', 'draft', 'future', 'private'],
             'meta_query' => [
+                'relation' => 'AND',
                 [
                     'key' => 'coupon_id',
                     'value' => $coupon_id,
+                    'compare' => '='
+                ],
+                [
+                    'key' => 'api_source',
+                    'value' => $api_source,
                     'compare' => '='
                 ]
             ],
@@ -215,7 +234,21 @@ class Coupon_Automation_Coupon_Manager {
             'posts_per_page' => 1
         ]);
         
-        return !empty($existing_coupon);
+        if (!empty($existing_coupons)) {
+            $this->logger->debug('Found existing coupon via direct query', [
+                'coupon_id' => $coupon_id,
+                'api_source' => $api_source,
+                'post_id' => $existing_coupons[0]
+            ]);
+            return true;
+        }
+        
+        $this->logger->debug('No existing coupon found', [
+            'coupon_id' => $coupon_id,
+            'api_source' => $api_source
+        ]);
+        
+        return false;
     }
     
     /**

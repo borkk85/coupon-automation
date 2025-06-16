@@ -53,7 +53,8 @@ class Coupon_Automation_Security {
      * Setup security headers
      */
     public function setup_security_headers() {
-        if (is_admin() && $this->is_plugin_page()) {
+        // Only proceed if we're in admin and get_current_screen is available
+        if (is_admin() && function_exists('get_current_screen') && $this->is_plugin_page()) {
             // Add security headers for plugin admin pages
             add_action('admin_head', function() {
                 echo '<meta http-equiv="X-Content-Type-Options" content="nosniff">' . "\n";
@@ -62,11 +63,13 @@ class Coupon_Automation_Security {
         }
     }
     
+    
     /**
      * Validate admin access for sensitive operations
      */
     public function validate_admin_access() {
-        if (is_admin() && $this->is_plugin_page()) {
+        // Only proceed if we're in admin and get_current_screen is available
+        if (is_admin() && function_exists('get_current_screen') && $this->is_plugin_page()) {
             if (!$this->current_user_can('manage_settings')) {
                 wp_die(
                     esc_html__('You do not have sufficient permissions to access this page.', 'coupon-automation'),
@@ -341,16 +344,21 @@ class Coupon_Automation_Security {
      * @return bool True if on plugin page, false otherwise
      */
     private function is_plugin_page() {
-        $screen = get_current_screen();
-        if (!$screen) {
-            return false;
-        }
-        
-        $plugin_pages = [
-            'settings_page_coupon-automation',
-            'settings_page_populate-brand-content',
-        ];
-        
-        return in_array($screen->id, $plugin_pages, true);
+    // Return false if get_current_screen is not available
+    if (!function_exists('get_current_screen')) {
+        return false;
     }
+    
+    $screen = get_current_screen();
+    if (!$screen) {
+        return false;
+    }
+    
+    $plugin_pages = [
+        'settings_page_coupon-automation',
+        'settings_page_populate-brand-content',
+    ];
+    
+    return in_array($screen->id, $plugin_pages, true);
+}
 }

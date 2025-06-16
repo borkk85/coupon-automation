@@ -35,8 +35,9 @@ if (version_compare(PHP_VERSION, '7.4', '<')) {
     return;
 }
 
-// Load the autoloader
+// Load the autoloader early
 require_once COUPON_AUTOMATION_PLUGIN_DIR . 'includes/class-autoloader.php';
+Coupon_Automation_Autoloader::init();
 
 /**
  * Main plugin class
@@ -88,7 +89,7 @@ final class Coupon_Automation {
     /**
      * Prevent unserialization
      */
-    private function __wakeup() {}
+    public function __wakeup() {}
     
     /**
      * Initialize WordPress hooks
@@ -97,7 +98,7 @@ final class Coupon_Automation {
         add_action('plugins_loaded', [$this, 'init'], 0);
         add_action('init', [$this, 'load_textdomain']);
         
-        // Activation and deactivation hooks
+        // Activation and deactivation hooks - these run before plugins_loaded
         register_activation_hook(COUPON_AUTOMATION_PLUGIN_FILE, [$this, 'activate']);
         register_deactivation_hook(COUPON_AUTOMATION_PLUGIN_FILE, [$this, 'deactivate']);
     }
@@ -111,9 +112,6 @@ final class Coupon_Automation {
         }
         
         try {
-            // Initialize autoloader
-            Coupon_Automation_Autoloader::init();
-            
             // Load core services
             $this->load_core_services();
             
@@ -127,6 +125,26 @@ final class Coupon_Automation {
             
         } catch (Exception $e) {
             $this->handle_error('Plugin initialization failed', $e);
+        }
+    }
+    
+    /**
+     * Clear plugin scheduled events directly
+     * Used during deactivation when services might not be available
+     */
+    private function clear_plugin_scheduled_events() {
+        $events = [
+            'coupon_automation_daily_sync',
+            'coupon_automation_cleanup',
+            'coupon_automation_health_check',
+            'fetch_and_store_data_event',
+            'retry_generate_coupon_title',
+            'retry_translate_description',
+            'coupon_automation_welcome_notification'
+        ];
+        
+        foreach ($events as $event) {
+            wp_clear_scheduled_hook($event);
         }
     }
     
@@ -160,12 +178,12 @@ final class Coupon_Automation {
         // API service
         $this->services['api'] = new Coupon_Automation_API_Manager();
         
-        // Admin service
+        // Admin service - only in admin
         if (is_admin()) {
             $this->services['admin'] = new Coupon_Automation_Admin();
         }
         
-        // AJAX service
+        // AJAX service - only during AJAX requests
         if (wp_doing_ajax()) {
             $this->services['ajax'] = new Coupon_Automation_AJAX();
         }
@@ -206,21 +224,14 @@ final class Coupon_Automation {
      */
     public function activate() {
         try {
-            // Ensure autoloader is available
-            if (!class_exists('Coupon_Automation_Autoloader')) {
-                require_once COUPON_AUTOMATION_PLUGIN_DIR . 'includes/class-autoloader.php';
-                Coupon_Automation_Autoloader::init();
-            }
+            // Autoloader is already loaded at this point
             
             // Run activation procedures
             $activator = new Coupon_Automation_Activator();
             $activator->activate();
             
-            // Schedule cron events
-            if (class_exists('Coupon_Automation_Cron')) {
-                $cron = new Coupon_Automation_Cron();
-                $cron->schedule_events();
-            }
+            // Schedule basic cron events directly without using the Cron class
+            $this->schedule_activation_events();
             
             // Flush rewrite rules
             flush_rewrite_rules();
@@ -244,6 +255,9 @@ final class Coupon_Automation {
             // Clear scheduled events
             if (isset($this->services['cron'])) {
                 $this->services['cron']->clear_scheduled_events();
+            } else {
+                // Fallback - clear events directly without requiring the cron class services
+                $this->clear_plugin_scheduled_events();
             }
             
             // Clear transients
@@ -325,6 +339,54 @@ final class Coupon_Automation {
      */
     public function get_plugin_url() {
         return COUPON_AUTOMATION_PLUGIN_URL;
+    }
+    
+    /**
+     * Schedule basic events during activation
+     * Simple scheduling without requiring full service initialization
+     */
+    private function schedule_basic_events() {
+        // Schedule daily sync - default to daily interval
+        if (!wp_next_scheduled('coupon_automation_daily_sync')) {
+            $start_time = strtotime('tomorrow 2:00 AM');
+            wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
+        }
+        
+        // Schedule weekly cleanup
+        if (!wp_next_scheduled('coupon_automation_cleanup')) {
+            $start_time = strtotime('next sunday 3:00 AM');
+            wp_schedule_event($start_time, 'weekly', 'coupon_automation_cleanup');
+        }
+        
+        // Schedule hourly health check
+        if (!wp_next_scheduled('coupon_automation_health_check')) {
+            $start_time = time() + HOUR_IN_SECONDS;
+            wp_schedule_event($start_time, 'hourly', 'coupon_automation_health_check');
+        }
+    }
+    
+    /**
+     * Schedule events during activation (renamed method)
+     * Simple scheduling without requiring full service initialization
+     */
+    private function schedule_activation_events() {
+        // Schedule daily sync - default to daily interval
+        if (!wp_next_scheduled('coupon_automation_daily_sync')) {
+            $start_time = strtotime('tomorrow 2:00 AM');
+            wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
+        }
+        
+        // Schedule weekly cleanup
+        if (!wp_next_scheduled('coupon_automation_cleanup')) {
+            $start_time = strtotime('next sunday 3:00 AM');
+            wp_schedule_event($start_time, 'weekly', 'coupon_automation_cleanup');
+        }
+        
+        // Schedule hourly health check
+        if (!wp_next_scheduled('coupon_automation_health_check')) {
+            $start_time = time() + HOUR_IN_SECONDS;
+            wp_schedule_event($start_time, 'hourly', 'coupon_automation_health_check');
+        }
     }
 }
 
