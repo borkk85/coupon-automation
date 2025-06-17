@@ -119,6 +119,7 @@ class Coupon_Automation_AJAX
             wp_send_json_error(__('Failed to start coupon processing. Please check the logs.', 'coupon-automation'));
         }
     }
+    
 
     /**
      * Handle stop automation AJAX request
