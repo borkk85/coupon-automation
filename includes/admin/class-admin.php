@@ -980,14 +980,18 @@ class Coupon_Automation_Admin {
      * @return string Masked key or empty string
      */
     private function get_masked_api_key($key_name) {
-        $api_key = $this->settings->get_api_key($key_name);
-        
-        if (!empty($api_key)) {
-            return str_repeat('*', 20);
+    $api_key = $this->settings->get_api_key($key_name);
+    
+    if (!empty($api_key)) {
+        // Show partial key for verification instead of all asterisks
+        if (strlen($api_key) > 8) {
+            return substr($api_key, 0, 4) . str_repeat('*', 12) . substr($api_key, -4);
         }
-        
-        return '';
+        return str_repeat('*', min(strlen($api_key), 20));
     }
+    
+    return '';
+}
     
     /**
      * Add settings error message
