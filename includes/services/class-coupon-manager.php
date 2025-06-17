@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Coupon Manager for Coupon Automation plugin
  * 
@@ -14,45 +15,47 @@ if (!defined('ABSPATH')) {
 /**
  * Coupon Manager class handles all coupon-related operations
  */
-class Coupon_Automation_Coupon_Manager {
-    
+class Coupon_Automation_Coupon_Manager
+{
+
     /**
      * Settings service
      * @var Coupon_Automation_Settings
      */
     private $settings;
-    
+
     /**
      * Logger service
      * @var Coupon_Automation_Logger
      */
     private $logger;
-    
+
     /**
      * Database service
      * @var Coupon_Automation_Database
      */
     private $database;
-    
+
     /**
      * Security service
      * @var Coupon_Automation_Security
      */
     private $security;
-    
+
     /**
      * Initialize coupon manager
      */
-    public function init() {
+    public function init()
+    {
         $this->settings = coupon_automation()->get_service('settings');
         $this->logger = coupon_automation()->get_service('logger');
         $this->database = coupon_automation()->get_service('database');
         $this->security = coupon_automation()->get_service('security');
-        
+
         // Register hooks for coupon management
         add_action('coupon_automation_cleanup', [$this, 'cleanup_expired_coupons']);
     }
-    
+
     /**
      * Process coupon data from API
      * Preserves original logic from process_coupon()
@@ -62,84 +65,121 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $api_source API source (addrevenue|awin)
      * @return int|false Coupon post ID or false on failure
      */
-    public function process_coupon($coupon_data, $advertiser_name, $api_source = 'addrevenue') {
+    public function process_coupon($coupon_data, $advertiser_name, $api_source = 'addrevenue')
+    {
+        // EMERGENCY DEBUG - Log EVERYTHING
+        error_log("=== COUPON PROCESSING DEBUG ===");
+        error_log("Advertiser: $advertiser_name");
+        error_log("API Source: $api_source");
+        error_log("Coupon Data Keys: " . implode(', ', array_keys($coupon_data)));
+
         $this->logger->debug('Processing coupon', [
             'advertiser' => $advertiser_name,
             'api_source' => $api_source,
             'coupon_data_keys' => array_keys($coupon_data)
         ]);
-        
+
         // Extract coupon data based on API source
         $extracted_data = $this->extract_coupon_data($coupon_data, $api_source);
         if (!$extracted_data) {
+            error_log("FAILED TO EXTRACT COUPON DATA");
             $this->logger->warning('Failed to extract coupon data', [
                 'advertiser' => $advertiser_name,
                 'api_source' => $api_source
             ]);
             return false;
         }
-        
-        // Check for existing coupon
-        if ($this->coupon_exists($extracted_data['coupon_id'], $api_source)) {
-            $this->logger->debug('Coupon already exists', [
+
+        error_log("Extracted Coupon ID: " . $extracted_data['coupon_id']);
+        error_log("Checking if coupon exists...");
+
+        $this->logger->debug('Extracted coupon data', [
+            'coupon_id' => $extracted_data['coupon_id'],
+            'advertiser' => $advertiser_name,
+            'api_source' => $api_source,
+            'description' => substr($extracted_data['description'], 0, 100) . '...'
+        ]);
+
+        // Check for existing coupon FIRST
+        $exists = $this->coupon_exists($extracted_data['coupon_id'], $api_source);
+        error_log("Coupon exists check result: " . ($exists ? 'TRUE' : 'FALSE'));
+
+        if ($exists) {
+            error_log("COUPON EXISTS - SHOULD SKIP");
+            $this->logger->info('Coupon already exists, skipping', [
                 'coupon_id' => $extracted_data['coupon_id'],
-                'advertiser' => $advertiser_name
+                'advertiser' => $advertiser_name,
+                'api_source' => $api_source
             ]);
             return false;
         }
-        
+
+        error_log("COUPON DOES NOT EXIST - WILL CREATE");
+
         // Skip non-SE market coupons for AddRevenue
         if ($api_source === 'addrevenue' && !isset($coupon_data['markets']['SE'])) {
+            error_log("SKIPPING NON-SE MARKET COUPON");
             $this->logger->debug('Skipping AddRevenue coupon for non-SE market', [
-                'advertiser' => $advertiser_name
+                'advertiser' => $advertiser_name,
+                'coupon_id' => $extracted_data['coupon_id']
             ]);
             return false;
         }
-        
+
         // Find brand term
         $brand_term = get_term_by('name', $advertiser_name, 'brands');
         if (!$brand_term) {
-            $this->logger->error("Brand '$advertiser_name' not found. Brand should exist before processing coupons.");
+            error_log("BRAND NOT FOUND: $advertiser_name");
+            $this->logger->error("Brand '$advertiser_name' not found. Brand should exist before processing coupons.", [
+                'coupon_id' => $extracted_data['coupon_id'],
+                'api_source' => $api_source
+            ]);
             return false;
         }
-        
+
         // Generate coupon title
         $coupon_title = $this->generate_coupon_title($extracted_data['description']);
         if ($coupon_title === false) {
+            error_log("TITLE GENERATION FAILED");
             $this->logger->warning('Title generation failed, will retry later', [
                 'coupon_id' => $extracted_data['coupon_id']
             ]);
             return false;
         }
-        
+
+        error_log("CREATING COUPON: $coupon_title");
+
         // Create coupon post
-        $post_id = $this->create_coupon_post($coupon_title, $extracted_data, $advertiser_name);
+        $post_id = $this->create_coupon_post($coupon_title, $extracted_data, $advertiser_name, $api_source);
         if (!$post_id) {
+            error_log("COUPON POST CREATION FAILED");
             return false;
         }
-        
+
+        error_log("COUPON CREATED SUCCESSFULLY: Post ID $post_id");
+
         // Process and update coupon terms
         $this->process_coupon_terms($post_id, $extracted_data['terms']);
-        
+
         // Assign brand taxonomy
         $this->assign_brand_to_coupon($post_id, $brand_term);
-        
+
         // Assign coupon categories from brand
         $this->assign_coupon_categories($post_id, $brand_term);
-        
+
         // Add notification
         $this->add_new_coupon_notification($coupon_title, $advertiser_name, $extracted_data['coupon_id']);
-        
+
         $this->logger->info('Coupon processed successfully', [
             'post_id' => $post_id,
             'coupon_title' => $coupon_title,
             'advertiser' => $advertiser_name,
             'coupon_id' => $extracted_data['coupon_id']
         ]);
-        
+
         return $post_id;
     }
-    
+
     /**
      * Extract coupon data based on API source
      * Preserves original data extraction logic
@@ -148,9 +188,10 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $api_source API source
      * @return array|false Extracted data or false on failure
      */
-    private function extract_coupon_data($coupon_data, $api_source) {
+    private function extract_coupon_data($coupon_data, $api_source)
+    {
         $extracted = [];
-        
+
         if ($api_source === 'addrevenue') {
             $extracted = [
                 'coupon_id' => isset($coupon_data['id']) ? sanitize_text_field($coupon_data['id']) : '',
@@ -161,10 +202,9 @@ class Coupon_Automation_Coupon_Manager {
                 'terms' => isset($coupon_data['terms']) ? wp_kses_post($coupon_data['terms']) : '',
                 'type' => ''
             ];
-            
+
             // Determine coupon type
             $extracted['type'] = empty($extracted['code']) ? 'Sale' : 'Code';
-            
         } elseif ($api_source === 'awin') {
             $extracted = [
                 'coupon_id' => isset($coupon_data['promotionId']) ? sanitize_text_field($coupon_data['promotionId']) : '',
@@ -175,19 +215,19 @@ class Coupon_Automation_Coupon_Manager {
                 'terms' => isset($coupon_data['terms']) ? wp_kses_post($coupon_data['terms']) : '',
                 'type' => ''
             ];
-            
+
             // Determine coupon type for AWIN
             $extracted['type'] = ($coupon_data['type'] === 'voucher' && !empty($extracted['code'])) ? 'Code' : 'Sale';
         }
-        
+
         // Validate required fields
         if (empty($extracted['coupon_id']) || empty($extracted['description'])) {
             return false;
         }
-        
+
         return $extracted;
     }
-    
+
     /**
      * Check if coupon already exists
      * 
@@ -195,26 +235,19 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $api_source API source
      * @return bool True if exists, false otherwise
      */
-    private function coupon_exists($coupon_id, $api_source) {
+    private function coupon_exists($coupon_id, $api_source)
+    {
+        error_log("=== CHECKING COUPON EXISTS ===");
+        error_log("Coupon ID: '$coupon_id'");
+        error_log("API Source: '$api_source'");
+
         if (empty($coupon_id)) {
+            error_log("EMPTY COUPON ID - RETURNING FALSE");
             return false;
         }
-        
-        // Use database service if available
-        if ($this->database) {
-            $existing_coupon = $this->database->get_coupon_by_external_id($coupon_id, $api_source);
-            if ($existing_coupon !== null) {
-                $this->logger->debug('Found existing coupon via database service', [
-                    'coupon_id' => $coupon_id,
-                    'api_source' => $api_source,
-                    'post_id' => $existing_coupon->ID
-                ]);
-                return true;
-            }
-        }
-        
-        // Fallback to direct query with more comprehensive search
-        $existing_coupons = get_posts([
+
+        // First check: Look for exact match with both coupon_id and api_source
+        $existing_with_source = get_posts([
             'post_type' => 'coupons',
             'post_status' => ['publish', 'draft', 'future', 'private'],
             'meta_query' => [
@@ -233,24 +266,49 @@ class Coupon_Automation_Coupon_Manager {
             'fields' => 'ids',
             'posts_per_page' => 1
         ]);
-        
-        if (!empty($existing_coupons)) {
-            $this->logger->debug('Found existing coupon via direct query', [
-                'coupon_id' => $coupon_id,
-                'api_source' => $api_source,
-                'post_id' => $existing_coupons[0]
-            ]);
+
+        error_log("Query with api_source found " . count($existing_with_source) . " coupons");
+        if (!empty($existing_with_source)) {
+            error_log("FOUND EXISTING COUPON WITH SOURCE: " . $existing_with_source[0]);
             return true;
         }
-        
-        $this->logger->debug('No existing coupon found', [
-            'coupon_id' => $coupon_id,
-            'api_source' => $api_source
+
+        // Second check: Look for coupon_id only (for legacy coupons without api_source)
+        $existing_without_source = get_posts([
+            'post_type' => 'coupons',
+            'post_status' => ['publish', 'draft', 'future', 'private'],
+            'meta_query' => [
+                [
+                    'key' => 'coupon_id',
+                    'value' => $coupon_id,
+                    'compare' => '='
+                ]
+            ],
+            'fields' => 'ids',
+            'posts_per_page' => 1
         ]);
-        
+
+        error_log("Query without api_source found " . count($existing_without_source) . " coupons");
+        if (!empty($existing_without_source)) {
+            error_log("FOUND EXISTING COUPON WITHOUT SOURCE: " . $existing_without_source[0]);
+            return true;
+        }
+
+        // Third check: Check if we can find ANY coupons with this title pattern
+        $similar_titles = get_posts([
+            'post_type' => 'coupons',
+            'post_status' => ['publish', 'draft', 'future', 'private'],
+            's' => substr($coupon_id, 0, 10), // Search first 10 chars of coupon ID
+            'fields' => 'ids',
+            'posts_per_page' => 1
+        ]);
+
+        error_log("Similar title search found " . count($similar_titles) . " coupons");
+
+        error_log("NO EXISTING COUPON FOUND - RETURNING FALSE");
         return false;
     }
-    
+
     /**
      * Generate coupon title using OpenAI
      * Preserves original logic from generate_coupon_title()
@@ -258,47 +316,48 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $description Coupon description
      * @return string|false Generated title or false on failure
      */
-    private function generate_coupon_title($description) {
+    private function generate_coupon_title($description)
+    {
         $openai_api = coupon_automation()->get_service('api')->get_api_handler('openai');
         if (!$openai_api) {
             $this->logger->error('OpenAI API handler not available for title generation');
             return 'Default Coupon Title';
         }
-        
+
         $prompt_template = $this->settings->get('prompts.coupon_title_prompt', '');
         $sanitized_description = sanitize_text_field($description);
         $prompt = $prompt_template . ' ' . $sanitized_description;
-        
+
         $title = $openai_api->generate_text($prompt, [
             'max_tokens' => 80,
             'temperature' => 0.7
         ]);
-        
+
         if ($title) {
             // Clean up the title
             $title = sanitize_text_field($title);
             $title = trim($title);
             $title = str_replace(['"', "'"], '', $title); // Remove quotes
-            
+
             $this->logger->debug('Generated coupon title', [
                 'original_description' => $description,
                 'generated_title' => $title
             ]);
-            
+
             return $title;
         }
-        
+
         // Schedule retry if generation fails
         wp_schedule_single_event(
             time() + HOUR_IN_SECONDS,
             'retry_generate_coupon_title',
             [$description]
         );
-        
+
         $this->logger->warning('OpenAI title generation failed, scheduled retry');
         return false;
     }
-    
+
     /**
      * Create coupon post
      * 
@@ -307,25 +366,30 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $advertiser_name Advertiser name
      * @return int|false Post ID or false on failure
      */
-    private function create_coupon_post($title, $coupon_data, $advertiser_name) {
+    private function create_coupon_post($title, $coupon_data, $advertiser_name, $api_source = 'addrevenue')
+    {
+        error_log("=== CREATING COUPON POST ===");
+        error_log("Title: $title");
+        error_log("API Source: $api_source");
+
         // Determine post status and date
         $post_status = 'publish';
         $post_date = current_time('mysql');
-        
-        // Handle future posts if valid_from is set (preserved from original logic)
+
+        // Handle future posts if valid_from is set
         if (!empty($coupon_data['valid_from'])) {
             $valid_from_timestamp = strtotime($coupon_data['valid_from']);
             $current_timestamp = current_time('timestamp');
-            
+
             if ($valid_from_timestamp > $current_timestamp) {
                 $post_status = 'future';
                 $post_date = date('Y-m-d H:i:s', $valid_from_timestamp);
             }
         }
-        
+
         // Create custom slug
         $custom_slug = sanitize_title($title . ' at ' . $advertiser_name);
-        
+
         $post_data = [
             'post_title' => $title,
             'post_name' => $custom_slug,
@@ -333,23 +397,29 @@ class Coupon_Automation_Coupon_Manager {
             'post_date' => $post_date,
             'post_type' => 'coupons',
         ];
-        
+
         $post_id = wp_insert_post($post_data);
-        
+
         if (is_wp_error($post_id)) {
+            error_log("POST CREATION FAILED: " . $post_id->get_error_message());
             $this->logger->error('Failed to create coupon post', [
                 'error' => $post_id->get_error_message(),
                 'post_data' => $post_data
             ]);
             return false;
         }
-        
+
+        error_log("POST CREATED: ID $post_id");
+
+        // CRITICAL: Add API source to coupon data before saving metadata
+        $coupon_data['api_source'] = $api_source;
+
         // Update post meta
         $this->update_coupon_meta($post_id, $coupon_data, $advertiser_name);
-        
+
         return $post_id;
     }
-    
+
     /**
      * Update coupon post meta
      * 
@@ -357,27 +427,37 @@ class Coupon_Automation_Coupon_Manager {
      * @param array $coupon_data Coupon data
      * @param string $advertiser_name Advertiser name
      */
-    private function update_coupon_meta($post_id, $coupon_data, $advertiser_name) {
+    private function update_coupon_meta($post_id, $coupon_data, $advertiser_name)
+    {
+        error_log("=== UPDATING COUPON META ===");
+        error_log("Post ID: $post_id");
+        error_log("Coupon ID: " . ($coupon_data['coupon_id'] ?? 'MISSING'));
+        error_log("API Source: " . ($coupon_data['api_source'] ?? 'MISSING'));
+
         $meta_updates = [
-            'coupon_id' => $coupon_data['coupon_id'],
-            'code' => $coupon_data['code'],
-            'redirect_url' => $coupon_data['url'],
-            'valid_untill' => $coupon_data['valid_to'],
-            'terms' => $coupon_data['terms'],
+            'coupon_id' => $coupon_data['coupon_id'] ?? '',
+            'code' => $coupon_data['code'] ?? '',
+            'redirect_url' => $coupon_data['url'] ?? '',
+            'valid_untill' => $coupon_data['valid_to'] ?? '',
+            'terms' => $coupon_data['terms'] ?? '',
             'advertiser_name' => $advertiser_name,
-            'coupon_type' => $coupon_data['type']
+            'coupon_type' => $coupon_data['type'] ?? '',
+            'api_source' => $coupon_data['api_source'] ?? 'unknown' // CRITICAL: Track API source
         ];
-        
+
         foreach ($meta_updates as $key => $value) {
-            update_post_meta($post_id, $key, $value);
+            $result = update_post_meta($post_id, $key, $value);
+            error_log("Meta update $key: " . ($result ? 'SUCCESS' : 'FAILED'));
         }
-        
+
         $this->logger->debug('Updated coupon meta', [
             'post_id' => $post_id,
-            'meta_keys' => array_keys($meta_updates)
+            'meta_keys' => array_keys($meta_updates),
+            'coupon_id' => $coupon_data['coupon_id'] ?? 'MISSING',
+            'api_source' => $coupon_data['api_source'] ?? 'MISSING'
         ]);
     }
-    
+
     /**
      * Process coupon terms
      * Preserves original terms processing logic
@@ -385,35 +465,36 @@ class Coupon_Automation_Coupon_Manager {
      * @param int $post_id Post ID
      * @param string $coupon_terms Original terms
      */
-    private function process_coupon_terms($post_id, $coupon_terms) {
+    private function process_coupon_terms($post_id, $coupon_terms)
+    {
         $terms_list = '';
-        
+
         if (!empty($coupon_terms)) {
             $translated_terms = $this->translate_description($coupon_terms);
-            
+
             if ($translated_terms !== false) {
                 $terms_array = explode(' - ', $translated_terms);
                 $this->logger->debug('Terms Array', ['terms' => $terms_array]);
-                
-                $terms_array = array_map(function($term) {
+
+                $terms_array = array_map(function ($term) {
                     $term = ltrim(ucfirst(trim($term)), '. ');
                     if (!preg_match('/[.!?]$/', $term)) {
                         $term .= '.';
                     }
                     return '<li>' . htmlspecialchars($term) . '</li>';
                 }, $terms_array);
-                
+
                 $terms_list = '<ul>' . implode("\n", $terms_array) . '</ul>';
                 update_field('show_details_button', $terms_list, $post_id);
             }
         }
-        
+
         // Use fallback terms if translation failed or terms were empty
         if (empty($coupon_terms) || $translated_terms === false) {
             $fallback_terms = $this->settings->get('general.fallback_terms', '');
             if (!empty($fallback_terms)) {
                 $terms_array = explode('\n', $fallback_terms);
-                $terms_array = array_map(function($term) {
+                $terms_array = array_map(function ($term) {
                     $term = ucfirst(trim($term));
                     if (!preg_match('/[.!?]$/', $term)) {
                         $term .= '.';
@@ -425,7 +506,7 @@ class Coupon_Automation_Coupon_Manager {
             }
         }
     }
-    
+
     /**
      * Translate coupon description to terms
      * Preserves original logic from translate_description()
@@ -433,32 +514,33 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $description Original description
      * @return string|false Translated terms or false on failure
      */
-    private function translate_description($description) {
+    private function translate_description($description)
+    {
         $openai_api = coupon_automation()->get_service('api')->get_api_handler('openai');
         if (!$openai_api) {
             $this->logger->error('OpenAI API handler not available for terms translation');
             return false;
         }
-        
+
         $prompt_template = $this->settings->get('prompts.description_prompt', '');
         $sanitized_description = sanitize_text_field($description);
         $prompt = $prompt_template . ' ' . $sanitized_description;
-        
+
         $system_message = "You are a coupon terms creator. Your task is to create concise, clear, and varied bullet points for coupon terms. Always follow the given instructions exactly. Ensure each point is unique and complete.";
-        
+
         $translated_content = $openai_api->generate_text($prompt, [
             'max_tokens' => 150,
             'temperature' => 0.4,
             'system_message' => $system_message
         ]);
-        
+
         if ($translated_content) {
             // Process the response (preserves original logic)
             $translated_content = preg_replace('/^[•\-\d.]\s*/m', '', $translated_content);
             $terms_array = array_filter(array_map('trim', explode("\n", $translated_content)));
             $terms_array = array_unique($terms_array);
             $terms_array = array_slice($terms_array, 0, 3);
-            
+
             // Ensure we have 3 terms
             while (count($terms_array) < 3) {
                 $new_term = "See full terms on website";
@@ -468,40 +550,41 @@ class Coupon_Automation_Coupon_Manager {
                     $terms_array[] = "Terms and conditions apply";
                 }
             }
-            
+
             // Clean up terms
-            $terms_array = array_map(function($term) {
+            $terms_array = array_map(function ($term) {
                 return ltrim($term, '. ');
             }, $terms_array);
-            
+
             $final_terms = implode(' - ', $terms_array);
-            
+
             $this->logger->debug('Translated coupon terms', [
                 'original' => $description,
                 'translated' => $final_terms
             ]);
-            
+
             return $final_terms;
         }
-        
+
         // Schedule retry if translation fails
         wp_schedule_single_event(
             time() + HOUR_IN_SECONDS,
             'retry_translate_description',
             [$description]
         );
-        
+
         $this->logger->warning('OpenAI terms translation failed, scheduled retry');
         return false;
     }
-    
+
     /**
      * Assign brand to coupon
      * 
      * @param int $post_id Post ID
      * @param WP_Term $brand_term Brand term
      */
-    private function assign_brand_to_coupon($post_id, $brand_term) {
+    private function assign_brand_to_coupon($post_id, $brand_term)
+    {
         if ($brand_term && !is_wp_error($brand_term)) {
             wp_set_post_terms($post_id, [$brand_term->term_id], 'brands', false);
             $this->logger->debug('Assigned brand to coupon', [
@@ -516,7 +599,7 @@ class Coupon_Automation_Coupon_Manager {
             ]);
         }
     }
-    
+
     /**
      * Assign coupon categories from brand
      * Preserves original logic from process_coupon()
@@ -524,9 +607,10 @@ class Coupon_Automation_Coupon_Manager {
      * @param int $post_id Post ID
      * @param WP_Term $brand_term Brand term
      */
-    private function assign_coupon_categories($post_id, $brand_term) {
+    private function assign_coupon_categories($post_id, $brand_term)
+    {
         $coupon_categories = get_field('coupon_categories', 'brands_' . $brand_term->term_id);
-        
+
         if (!empty($coupon_categories)) {
             wp_set_post_terms($post_id, $coupon_categories, 'coupon_categories');
             $this->logger->debug('Assigned coupon categories', [
@@ -535,7 +619,7 @@ class Coupon_Automation_Coupon_Manager {
             ]);
         }
     }
-    
+
     /**
      * Add new coupon notification
      * Preserves original functionality
@@ -544,7 +628,8 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $brand_name Brand name
      * @param string $coupon_id External coupon ID
      */
-    private function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id) {
+    private function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id)
+    {
         $notifications = get_option('coupon_automation_notifications', []);
         $notifications[] = [
             'type' => 'coupon',
@@ -555,52 +640,54 @@ class Coupon_Automation_Coupon_Manager {
         ];
         update_option('coupon_automation_notifications', array_slice($notifications, -50));
     }
-    
+
     /**
      * Cleanup expired coupons
      * Preserves original logic from purge_expired_coupons()
      * 
      * @return int Number of purged coupons
      */
-    public function cleanup_expired_coupons() {
+    public function cleanup_expired_coupons()
+    {
         if ($this->database) {
             $expired_coupon_ids = $this->database->get_expired_coupons(100);
         } else {
             // Fallback to direct query
             $expired_coupon_ids = $this->get_expired_coupons_fallback();
         }
-        
+
         $purged_count = 0;
-        
+
         foreach ($expired_coupon_ids as $coupon_id) {
             // Move to trash
             wp_trash_post($coupon_id);
-            
+
             // Set up redirect to brand page
             $brand_terms = wp_get_post_terms($coupon_id, 'brands');
             if (!empty($brand_terms) && !is_wp_error($brand_terms)) {
                 $brand_slug = $brand_terms[0]->slug;
                 add_post_meta($coupon_id, '_redirect_to_brand', home_url('/brands/' . $brand_slug), true);
             }
-            
+
             $purged_count++;
         }
-        
+
         if ($purged_count > 0) {
             $this->logger->info("Purged expired coupons", ['count' => $purged_count]);
         }
-        
+
         return $purged_count;
     }
-    
+
     /**
      * Get expired coupons (fallback method)
      * 
      * @return array Expired coupon IDs
      */
-    private function get_expired_coupons_fallback() {
+    private function get_expired_coupons_fallback()
+    {
         $today = date('Ymd');
-        
+
         $args = [
             'post_type' => 'coupons',
             'posts_per_page' => 100,
@@ -624,21 +711,22 @@ class Coupon_Automation_Coupon_Manager {
                 ]
             ]
         ];
-        
+
         return get_posts($args);
     }
-    
+
     /**
      * Get coupon statistics
      * 
      * @return array Coupon statistics
      */
-    public function get_coupon_statistics() {
+    public function get_coupon_statistics()
+    {
         $total_coupons = wp_count_posts('coupons');
         $today = date('Ymd');
-        
+
         $expired_count = count($this->get_expired_coupons_fallback());
-        
+
         $recent_coupons = get_posts([
             'post_type' => 'coupons',
             'posts_per_page' => -1,
@@ -649,7 +737,7 @@ class Coupon_Automation_Coupon_Manager {
                 ]
             ]
         ]);
-        
+
         return [
             'total_published' => $total_coupons->publish ?? 0,
             'total_draft' => $total_coupons->draft ?? 0,
@@ -658,7 +746,7 @@ class Coupon_Automation_Coupon_Manager {
             'recent_count' => count($recent_coupons),
         ];
     }
-    
+
     /**
      * Get coupons by brand
      * 
@@ -666,7 +754,8 @@ class Coupon_Automation_Coupon_Manager {
      * @param int $limit Number of coupons to retrieve
      * @return array Coupon posts
      */
-    public function get_coupons_by_brand($brand_term_id, $limit = 20) {
+    public function get_coupons_by_brand($brand_term_id, $limit = 20)
+    {
         $args = [
             'post_type' => 'coupons',
             'posts_per_page' => $limit,
@@ -681,10 +770,10 @@ class Coupon_Automation_Coupon_Manager {
             'orderby' => 'date',
             'order' => 'DESC'
         ];
-        
+
         return get_posts($args);
     }
-    
+
     /**
      * Search coupons
      * 
@@ -692,7 +781,8 @@ class Coupon_Automation_Coupon_Manager {
      * @param array $filters Additional filters
      * @return array Search results
      */
-    public function search_coupons($search_term, $filters = []) {
+    public function search_coupons($search_term, $filters = [])
+    {
         $args = [
             'post_type' => 'coupons',
             'posts_per_page' => 50,
@@ -701,7 +791,7 @@ class Coupon_Automation_Coupon_Manager {
             'orderby' => 'relevance',
             'order' => 'DESC'
         ];
-        
+
         // Apply filters
         if (!empty($filters['brand'])) {
             $args['tax_query'] = [
@@ -712,7 +802,7 @@ class Coupon_Automation_Coupon_Manager {
                 ]
             ];
         }
-        
+
         if (!empty($filters['coupon_type'])) {
             $args['meta_query'] = [
                 [
@@ -722,10 +812,10 @@ class Coupon_Automation_Coupon_Manager {
                 ]
             ];
         }
-        
+
         return get_posts($args);
     }
-    
+
     /**
      * Validate coupon data
      * 
@@ -733,9 +823,10 @@ class Coupon_Automation_Coupon_Manager {
      * @param string $api_source API source
      * @return array Validation errors
      */
-    public function validate_coupon_data($coupon_data, $api_source) {
+    public function validate_coupon_data($coupon_data, $api_source)
+    {
         $errors = [];
-        
+
         // Required fields based on API source
         $required_fields = [];
         if ($api_source === 'addrevenue') {
@@ -743,26 +834,26 @@ class Coupon_Automation_Coupon_Manager {
         } elseif ($api_source === 'awin') {
             $required_fields = ['promotionId', 'description'];
         }
-        
+
         foreach ($required_fields as $field) {
             if (!isset($coupon_data[$field]) || empty($coupon_data[$field])) {
                 $errors[] = "Missing required field: {$field}";
             }
         }
-        
+
         // Validate URL if present
         if (isset($coupon_data['trackingLink']) && !empty($coupon_data['trackingLink'])) {
             if (!filter_var($coupon_data['trackingLink'], FILTER_VALIDATE_URL)) {
                 $errors[] = "Invalid tracking link URL";
             }
         }
-        
+
         if (isset($coupon_data['urlTracking']) && !empty($coupon_data['urlTracking'])) {
             if (!filter_var($coupon_data['urlTracking'], FILTER_VALIDATE_URL)) {
                 $errors[] = "Invalid tracking URL";
             }
         }
-        
+
         return $errors;
     }
 }
