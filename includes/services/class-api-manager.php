@@ -96,6 +96,7 @@ class Coupon_Automation_API_Manager
                 'current_hour' => $current_hour,
                 'allowed_window' => '00:00 - 06:00'
             ]);
+            // Use cleanup_processing_flags for abort scenarios
             $this->cleanup_processing_flags();
             return false;
         }
@@ -110,6 +111,7 @@ class Coupon_Automation_API_Manager
                 'last_sync_date' => $last_sync_date,
                 'today' => $today
             ]);
+            // Use cleanup_processing_flags for abort scenarios
             $this->cleanup_processing_flags();
             return false;
         }
@@ -118,6 +120,7 @@ class Coupon_Automation_API_Manager
         if (get_option('coupon_automation_stop_requested', false)) {
             error_log("STOP REQUESTED - ABORTING");
             $this->logger->info('Processing stop requested, aborting');
+            // Use cleanup_processing_flags for abort scenarios
             $this->cleanup_processing_flags();
             return false;
         }
@@ -154,6 +157,7 @@ class Coupon_Automation_API_Manager
             if (empty($all_data)) {
                 error_log("NO API DATA FETCHED - MARKING TODAY AS PROCESSED");
                 $this->logger->warning('No API data fetched');
+                // Mark today as processed even with no data
                 update_option('coupon_automation_last_sync_date', $today);
                 $this->cleanup_processing_flags();
                 return true;
@@ -178,9 +182,26 @@ class Coupon_Automation_API_Manager
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+            // Use cleanup_processing_flags for error scenarios
             $this->cleanup_processing_flags();
             throw $e;
         }
+    }
+
+    private function cleanup_processing_flags()
+    {
+        error_log("=== CLEANING UP PROCESSING FLAGS ===");
+
+        delete_transient('fetch_process_running');
+        delete_transient('api_processed_count');
+
+        // Clear scheduled events
+        wp_clear_scheduled_hook('fetch_and_store_data_event');
+
+        // Reset stop flag
+        update_option('coupon_automation_stop_requested', false);
+
+        error_log("CLEANUP COMPLETED");
     }
 
     /**
@@ -302,8 +323,6 @@ class Coupon_Automation_API_Manager
         // CRITICAL: Check if we should continue processing today
         if ($processed_count >= $total_items) {
             error_log("ALL ITEMS ALREADY PROCESSED - COMPLETING");
-            // Mark today as processed and use existing complete_processing method
-            update_option('coupon_automation_last_sync_date', $today);
             $this->complete_processing();
             return;
         }
@@ -323,7 +342,7 @@ class Coupon_Automation_API_Manager
                 'processed_count' => $processed_count,
                 'total_items' => $total_items
             ]);
-            update_option('coupon_automation_last_sync_date', $today);
+            // REMOVED: duplicate line - update_option('coupon_automation_last_sync_date', $today);
             $this->complete_processing();
             return;
         }
@@ -352,8 +371,6 @@ class Coupon_Automation_API_Manager
         // Check if processing is complete
         if ($new_processed_count >= $total_items) {
             error_log("ALL PROCESSING COMPLETE FOR TODAY");
-            // Mark today as processed and use existing complete_processing method
-            update_option('coupon_automation_last_sync_date', $today);
             $this->complete_processing();
             return;
         }
@@ -540,8 +557,7 @@ class Coupon_Automation_API_Manager
             $this->logger->info('Continue processing called outside window, stopping', [
                 'current_hour' => $current_hour
             ]);
-            update_option('coupon_automation_last_sync_date', $today);
-            $this->cleanup_processing_flags();
+            $this->complete_processing();
             return;
         }
 
@@ -559,10 +575,10 @@ class Coupon_Automation_API_Manager
     /**
      * Complete processing
      */
-    
+
     private function complete_processing()
     {
-        error_log("=== COMPLETING PROCESSING ===");
+        error_log("=== COMPLETING PROCESSING ==="); // ADD THIS LINE
         $this->logger->info('API processing completed successfully');
 
         // Clear cached data and processing flags
@@ -572,7 +588,7 @@ class Coupon_Automation_API_Manager
         delete_transient('api_processed_count');
         delete_transient('fetch_process_running');
 
-        // Clear scheduled events
+        // Clear scheduled events - ADD THIS LINE
         wp_clear_scheduled_hook('fetch_and_store_data_event');
 
         // Reset stop flag
@@ -581,22 +597,12 @@ class Coupon_Automation_API_Manager
         // Update last sync time
         update_option('coupon_automation_last_sync', current_time('mysql'));
 
-        // ADDED: Ensure today is marked as processed
-        $today = current_time('Y-m-d');
-        update_option('coupon_automation_last_sync_date', $today);
+        // CRITICAL: Mark today as processed - ADD THIS LINE
+        update_option('coupon_automation_last_sync_date', current_time('Y-m-d'));
 
-        error_log("PROCESSING COMPLETED AND TODAY MARKED: $today");
+        error_log("PROCESSING COMPLETED - TODAY MARKED AS DONE"); // ADD THIS LINE
     }
 
-    /**
-     * Cleanup processing flags
-     */
-    private function cleanup_processing_flags()
-    {
-        delete_transient('fetch_process_running');
-        delete_transient('api_processed_count');
-        update_option('coupon_automation_stop_requested', false);
-    }
 
     /**
      * Stop processing
@@ -657,7 +663,16 @@ class Coupon_Automation_API_Manager
             delete_transient($transient);
         }
 
-        $this->logger->info('API cache cleared');
+        // ADDED: Also clear daily sync date when clearing cache (for testing)
+        delete_option('coupon_automation_last_sync_date');
+
+        // Clear scheduled events
+        wp_clear_scheduled_hook('fetch_and_store_data_event');
+
+        // Reset stop flag
+        update_option('coupon_automation_stop_requested', false);
+
+        $this->logger->info('API cache cleared (including daily sync date)');
         return true;
     }
 
