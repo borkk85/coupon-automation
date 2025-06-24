@@ -458,6 +458,7 @@ class Coupon_Automation_Admin
         <div class="status-dashboard">
             <h3><?php esc_html_e('System Status', 'coupon-automation'); ?></h3>
 
+
             <div class="status-grid">
                 <div class="status-item">
                     <h4><?php esc_html_e('Processing Status', 'coupon-automation'); ?></h4>
@@ -485,6 +486,25 @@ class Coupon_Automation_Admin
                     </div>
                 </div>
 
+                <?php
+                $scheduled_for = get_option('coupon_automation_scheduled_for');
+                if ($scheduled_for && $scheduled_for > time()) {
+                    echo '<div class="status-item">';
+                    echo '<h4>' . esc_html__('Scheduled Processing', 'coupon-automation') . '</h4>';
+                    echo '<div class="status-value" style="color: #d63638;">';
+                    echo esc_html(date('H:i', $scheduled_for));
+                    echo '</div>';
+                    echo '<div class="status-label">';
+                    echo esc_html(sprintf(
+                        __('Next run: %s', 'coupon-automation'),
+                        date('Y-m-d H:i:s', $scheduled_for)
+                    ));
+                    echo '</div>';
+                    echo '</div>';
+                }
+
+                ?>
+
                 <div class="status-item">
                     <h4><?php esc_html_e('Active Coupons', 'coupon-automation'); ?></h4>
                     <div class="status-value"><?php echo absint($coupon_stats['total_published'] ?? 0); ?></div>
@@ -511,6 +531,7 @@ class Coupon_Automation_Admin
                     <h4>Daily Processing Status</h4>
                     <p id="daily-status">Loading status...</p>
                 </div>
+
 
                 <script>
                     jQuery(document).ready(function($) {

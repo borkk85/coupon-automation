@@ -76,7 +76,7 @@ class Coupon_Automation_AJAX
             wp_send_json_error(__('Insufficient permissions to manage coupons.', 'coupon-automation'));
         }
 
-        // CRITICAL: Rate limiting - prevent multiple manual triggers
+        // Rate limiting
         $last_trigger = get_transient('coupon_automation_last_manual_trigger');
         if ($last_trigger && (time() - $last_trigger) < 30) {
             $wait_time = 30 - (time() - $last_trigger);
@@ -103,11 +103,28 @@ class Coupon_Automation_AJAX
                 wp_send_json_error(__('Could not start processing - another process may be running.', 'coupon-automation'));
             }
 
-            $response_data = [
-                'message' => __('Coupon processing started successfully. Processing will continue in the background.', 'coupon-automation'),
-                'status' => 'started',
-                'timestamp' => current_time('mysql')
-            ];
+            // Check if processing was scheduled for later
+            $scheduled_for = get_option('coupon_automation_scheduled_for');
+            $current_hour = (int) current_time('H');
+            $in_window = ($current_hour >= 0 && $current_hour < 6);
+
+            if ($scheduled_for && !$in_window) {
+                $response_data = [
+                    'message' => sprintf(
+                        __('Processing scheduled for %s (next processing window).', 'coupon-automation'),
+                        date('Y-m-d H:i:s', $scheduled_for)
+                    ),
+                    'status' => 'scheduled',
+                    'scheduled_time' => date('Y-m-d H:i:s', $scheduled_for),
+                    'current_hour' => $current_hour
+                ];
+            } else {
+                $response_data = [
+                    'message' => __('Coupon processing started successfully. Processing will continue in the background.', 'coupon-automation'),
+                    'status' => 'started',
+                    'timestamp' => current_time('mysql')
+                ];
+            }
 
             wp_send_json_success($response_data);
         } catch (Exception $e) {
@@ -119,7 +136,7 @@ class Coupon_Automation_AJAX
             wp_send_json_error(__('Failed to start coupon processing. Please check the logs.', 'coupon-automation'));
         }
     }
-    
+
 
     /**
      * Handle stop automation AJAX request

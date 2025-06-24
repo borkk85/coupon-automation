@@ -391,6 +391,47 @@ final class Coupon_Automation {
 }
 
 /**
+ * Simple cron callback function (like the old system)
+ * This ensures the function exists during cron execution
+ */
+function coupon_automation_cron_callback() {
+    error_log("=== CRON CALLBACK TRIGGERED ===");
+    error_log("Current time: " . current_time('c'));
+    error_log("Server time: " . date('c'));
+    
+    // Ensure plugin is loaded
+    if (!function_exists('coupon_automation')) {
+        error_log("Plugin function not available during cron");
+        return;
+    }
+    
+    $plugin = coupon_automation();
+    if (!$plugin) {
+        error_log("Plugin instance not available during cron");
+        return;
+    }
+    
+    $api_manager = $plugin->get_service('api');
+    if (!$api_manager) {
+        error_log("API Manager service not available during cron");
+        return;
+    }
+    
+    error_log("All services available - calling fetch_and_process_all_data");
+    
+    try {
+        $api_manager->fetch_and_process_all_data();
+    } catch (Exception $e) {
+        error_log("Cron execution failed: " . $e->getMessage());
+    }
+    
+    error_log("=== CRON CALLBACK COMPLETED ===");
+}
+
+// Register the hook using a simple function (like the old system)
+add_action('coupon_automation_manual_trigger', 'coupon_automation_cron_callback');
+
+/**
  * Initialize the plugin
  * 
  * @return Coupon_Automation
@@ -398,6 +439,7 @@ final class Coupon_Automation {
 function coupon_automation() {
     return Coupon_Automation::get_instance();
 }
+
 
 // Start the plugin
 coupon_automation();
