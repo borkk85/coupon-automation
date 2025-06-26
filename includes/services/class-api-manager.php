@@ -54,13 +54,12 @@ class Coupon_Automation_API_Manager
         // Initialize API handlers
         $this->init_api_handlers();
 
-        // Register hooks
+        // SIMPLIFIED: Only register essential hooks
         add_action('coupon_automation_daily_sync', [$this, 'fetch_and_process_all_data']);
         add_action('fetch_and_store_data_event', [$this, 'continue_processing']);
 
-        // ADD THIS LINE: Register manual trigger hook
-        // add_action('coupon_automation_manual_trigger', [$this, 'fetch_and_process_all_data']);
-        error_log("REGISTERED coupon_automation_manual_trigger hook in API Manager");
+        // REMOVED: Complex manual trigger registration
+        error_log("API Manager initialized with simplified hooks");
     }
 
     /**
@@ -87,118 +86,64 @@ class Coupon_Automation_API_Manager
      */
     public function fetch_and_process_all_data()
     {
-        // EMERGENCY DEBUG - Log EVERYTHING about when this runs
         error_log("=== API MANAGER: fetch_and_process_all_data() CALLED ===");
         error_log("WordPress current_time(): " . current_time('c'));
-        error_log("WordPress current_time('H'): " . current_time('H'));
-        error_log("Server time: " . date('c'));
-        error_log("Server hour: " . date('H'));
-        error_log("WordPress timezone: " . get_option('timezone_string'));
-        error_log("Called by action: " . current_action());
-        error_log("Called from: " . wp_debug_backtrace_summary());
+        error_log("Current hour: " . current_time('H'));
+        error_log("Called by action: " . (current_action() ?: 'direct'));
 
         $this->logger->info('Starting API data fetch and processing');
 
-        // Determine if this is a manual trigger or scheduled execution
-        $is_manual_trigger = (wp_doing_ajax() && isset($_POST['action']) && $_POST['action'] === 'fetch_coupons');
+        // SIMPLIFIED: Check basic conditions only
         $current_hour = (int) current_time('H');
-        $in_processing_window = ($current_hour >= 0 && $current_hour < 6);
+        $today = current_time('Y-m-d');
+        $last_sync_date = get_option('coupon_automation_last_sync_date');
+        
+        // Determine if this is manual (AJAX) or automatic (cron)
+        $is_manual = wp_doing_ajax() && isset($_POST['action']) && $_POST['action'] === 'fetch_coupons';
+        
+        error_log("Processing type: " . ($is_manual ? 'MANUAL' : 'AUTOMATIC'));
+        error_log("Current hour: $current_hour");
+        error_log("Today: $today, Last sync: $last_sync_date");
 
-        error_log("TRIGGER DETECTION:");
-        error_log("wp_doing_ajax(): " . (wp_doing_ajax() ? 'YES' : 'NO'));
-        error_log("POST action: " . ($_POST['action'] ?? 'not set'));
-        error_log("is_manual_trigger: " . ($is_manual_trigger ? 'YES' : 'NO'));
-        error_log("current_hour: $current_hour");
-        error_log("in_processing_window: " . ($in_processing_window ? 'YES' : 'NO'));
-
-        // MANUAL TRIGGER LOGIC: Allow manual scheduling outside window
-        if ($is_manual_trigger) {
-            if ($in_processing_window) {
-                error_log("MANUAL TRIGGER DURING PROCESSING WINDOW - STARTING IMMEDIATELY");
-                // Continue with immediate processing
-            } else {
-                error_log("MANUAL TRIGGER OUTSIDE WINDOW - SCHEDULING FOR NEXT WINDOW");
-                $this->schedule_for_next_window();
-                return true; // Return success - processing scheduled
-            }
-        } else {
-            // SCHEDULED EXECUTION: Only run during processing window
-            if (!$in_processing_window) {
-                error_log("SCHEDULED EXECUTION OUTSIDE WINDOW - ABORTING");
-                error_log("This means the scheduled event ran at hour: $current_hour");
-                error_log("WordPress timezone setting: " . get_option('timezone_string'));
-                error_log("Server timezone: " . date_default_timezone_get());
-
-                $this->logger->info('Scheduled execution outside processing window, aborting', [
-                    'current_hour' => $current_hour,
-                    'allowed_window' => '00:00 - 06:00',
-                    'wp_timezone' => get_option('timezone_string'),
-                    'server_timezone' => date_default_timezone_get()
-                ]);
-                $this->cleanup_processing_flags();
-                return false;
-            }
-            error_log("SCHEDULED EXECUTION DURING WINDOW - PROCEEDING");
+        // Check if already processed today
+        if ($last_sync_date === $today) {
+            error_log("ALREADY PROCESSED TODAY - ABORTING");
+            $this->logger->info('Already processed today, aborting', [
+                'today' => $today,
+                'last_sync_date' => $last_sync_date
+            ]);
+            return false;
         }
 
-        $this->logger->info('Starting API data fetch and processing');
-
-        // Determine if this is a manual trigger or scheduled execution
-        $is_manual_trigger = (wp_doing_ajax() && isset($_POST['action']) && $_POST['action'] === 'fetch_coupons');
-        $current_hour = (int) current_time('H');
-        $in_processing_window = ($current_hour >= 0 && $current_hour < 6);
-
-        error_log("TRIGGER TYPE: " . ($is_manual_trigger ? 'MANUAL' : 'SCHEDULED'));
-        error_log("CURRENT HOUR: $current_hour");
-        error_log("IN PROCESSING WINDOW: " . ($in_processing_window ? 'YES' : 'NO'));
-
-        // MANUAL TRIGGER LOGIC: Allow manual scheduling outside window
-        if ($is_manual_trigger) {
-            if ($in_processing_window) {
-                error_log("MANUAL TRIGGER DURING PROCESSING WINDOW - STARTING IMMEDIATELY");
-                // Continue with immediate processing
-            } else {
-                error_log("MANUAL TRIGGER OUTSIDE WINDOW - SCHEDULING FOR NEXT WINDOW");
-                $this->schedule_for_next_window();
-                return true; // Return success - processing scheduled
-            }
-        } else {
-            // SCHEDULED EXECUTION: Only run during processing window
+        // For automatic processing, check time window
+        if (!$is_manual) {
+            $in_processing_window = ($current_hour >= 0 && $current_hour < 6);
             if (!$in_processing_window) {
-                error_log("SCHEDULED EXECUTION OUTSIDE WINDOW - ABORTING");
-                $this->logger->info('Scheduled execution outside processing window, aborting', [
+                error_log("AUTOMATIC PROCESSING OUTSIDE WINDOW (hour: $current_hour)");
+                $this->logger->info('Automatic processing outside window', [
                     'current_hour' => $current_hour,
                     'allowed_window' => '00:00 - 06:00'
                 ]);
-                $this->cleanup_processing_flags();
                 return false;
             }
-            error_log("SCHEDULED EXECUTION DURING WINDOW - PROCEEDING");
         }
 
-        // CHECK: Only process once per day
-        $last_sync_date = get_option('coupon_automation_last_sync_date');
-        $today = current_time('Y-m-d');
-
-        if ($last_sync_date === $today) {
-            error_log("ALREADY PROCESSED TODAY ($today) - ABORTING");
-            $this->logger->info('Already processed today, aborting', [
-                'last_sync_date' => $last_sync_date,
-                'today' => $today
+        // For manual processing outside window, process immediately but warn
+        if ($is_manual && ($current_hour < 0 || $current_hour >= 6)) {
+            error_log("MANUAL PROCESSING OUTSIDE NORMAL WINDOW - PROCEEDING ANYWAY");
+            $this->logger->warning('Manual processing outside normal window', [
+                'current_hour' => $current_hour
             ]);
-            $this->cleanup_processing_flags();
-            return false;
         }
 
-        // CHECK: Stop flag
+        // Check stop flag
         if (get_option('coupon_automation_stop_requested', false)) {
             error_log("STOP REQUESTED - ABORTING");
             $this->logger->info('Processing stop requested, aborting');
-            $this->cleanup_processing_flags();
             return false;
         }
 
-        // CHECK: Processing lock
+        // SIMPLIFIED: Basic lock check
         $lock_key = 'fetch_process_running';
         $current_lock = get_transient($lock_key);
 
@@ -206,112 +151,109 @@ class Coupon_Automation_API_Manager
             $lock_age = time() - $current_lock;
             if ($lock_age < 1800) { // 30 minutes
                 error_log("PROCESSING ALREADY RUNNING - LOCK AGE: $lock_age seconds");
-                $this->logger->warning('API processing already running, aborting', [
-                    'lock_age_seconds' => $lock_age
-                ]);
                 return false;
             } else {
-                error_log("STALE LOCK DETECTED - CLEARING AND CONTINUING - LOCK AGE: $lock_age seconds");
-                $this->logger->warning('Stale lock detected, clearing and continuing', [
-                    'lock_age_seconds' => $lock_age
-                ]);
+                error_log("CLEARING STALE LOCK - AGE: $lock_age seconds");
+                delete_transient($lock_key);
             }
         }
 
-        // Set processing flag with current timestamp
+        // Set processing lock
         set_transient($lock_key, time(), 30 * MINUTE_IN_SECONDS);
-        error_log("PROCESSING LOCK SET");
+        update_option('coupon_automation_processing_status', 'running');
+        update_option('coupon_automation_last_sync', current_time('mysql'));
+        
+        error_log("PROCESSING STARTED");
 
         try {
-            // Fetch data from all available APIs
+            // Fetch and process data
             error_log("FETCHING API DATA...");
             $all_data = $this->fetch_all_api_data();
 
             if (empty($all_data)) {
-                error_log("NO API DATA FETCHED - MARKING TODAY AS PROCESSED");
-                $this->logger->warning('No API data fetched');
-                // Mark today as processed even with no data
-                update_option('coupon_automation_last_sync_date', $today);
-                $this->cleanup_processing_flags();
+                error_log("NO API DATA - COMPLETING");
+                $this->complete_processing();
                 return true;
             }
 
-            // Debug what APIs returned data
-            foreach ($all_data as $api_name => $api_data) {
-                if (is_array($api_data)) {
-                    foreach ($api_data as $data_type => $data_items) {
-                        $count = is_array($data_items) ? count($data_items) : 0;
-                        error_log("API: $api_name, Type: $data_type, Count: $count");
-                    }
-                }
-            }
-
-            // Process the data in chunks
             error_log("PROCESSING DATA IN CHUNKS...");
             $this->process_data_in_chunks($all_data);
+            
         } catch (Exception $e) {
-            error_log("API PROCESSING FAILED: " . $e->getMessage());
-            $this->logger->error('API processing failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+            error_log("PROCESSING FAILED: " . $e->getMessage());
+            $this->logger->error('Processing failed', [
+                'error' => $e->getMessage()
             ]);
+            
+            update_option('coupon_automation_processing_status', 'failed');
+            update_option('coupon_automation_last_error', $e->getMessage());
             $this->cleanup_processing_flags();
             throw $e;
         }
+
+        return true;
     }
 
-    private function schedule_for_next_window()
+    public function trigger_manual_processing()
     {
-        error_log("=== SCHEDULING FOR NEXT PROCESSING WINDOW ===");
-
-        $current_hour = (int) current_time('H');
-        $current_wp_time = current_time('c');
-        $current_server_time = date('c');
-
-        error_log("Current WP time: $current_wp_time");
-        error_log("Current server time: $current_server_time");
-        error_log("Current hour (WP): $current_hour");
-
-        // Calculate next processing window start time
-        if ($current_hour < 24) {
-            // Schedule for tonight/early tomorrow morning at 00:30
-            $next_window = strtotime('today 00:30') + DAY_IN_SECONDS;
-        } else {
-            // Should not happen, but fallback
-            $next_window = strtotime('tomorrow 00:30');
-        }
-
-        error_log("NEXT PROCESSING WINDOW: " . date('Y-m-d H:i:s', $next_window));
-        error_log("Next window in WP timezone: " . wp_date('Y-m-d H:i:s', $next_window));
-
-        // Clear any existing scheduled event first
-        wp_clear_scheduled_hook('coupon_automation_manual_trigger');
-
-        // Schedule processing for the next window
-        $scheduled = wp_schedule_single_event($next_window, 'coupon_automation_manual_trigger');
-
-        if ($scheduled !== false) {
-            error_log("SUCCESSFULLY SCHEDULED FOR NEXT WINDOW");
-
-            // Verify it was actually scheduled
-            $verification = wp_next_scheduled('coupon_automation_manual_trigger');
-            error_log("Verification - next scheduled: " . ($verification ? date('Y-m-d H:i:s', $verification) : 'NOT FOUND'));
-
-            $this->logger->info('Scheduled processing for next window', [
-                'scheduled_time' => date('Y-m-d H:i:s', $next_window),
-                'current_hour' => $current_hour,
-                'verification' => $verification
-            ]);
-
-            // Store this for admin display
-            update_option('coupon_automation_scheduled_for', $next_window);
-        } else {
-            error_log("FAILED TO SCHEDULE FOR NEXT WINDOW");
-            $this->logger->error('Failed to schedule processing for next window');
-        }
-
-        error_log("=== SCHEDULING COMPLETED ===");
+        error_log("=== MANUAL TRIGGER REQUESTED ===");
+        
+        // Simple direct call - no complex scheduling
+        return $this->fetch_and_process_all_data();
     }
+
+    // private function schedule_for_next_window()
+    // {
+    //     error_log("=== SCHEDULING FOR NEXT PROCESSING WINDOW ===");
+
+    //     $current_hour = (int) current_time('H');
+    //     $current_wp_time = current_time('c');
+    //     $current_server_time = date('c');
+
+    //     error_log("Current WP time: $current_wp_time");
+    //     error_log("Current server time: $current_server_time");
+    //     error_log("Current hour (WP): $current_hour");
+
+    //     // Calculate next processing window start time
+    //     if ($current_hour < 24) {
+    //         // Schedule for tonight/early tomorrow morning at 00:30
+    //         $next_window = strtotime('today 00:30') + DAY_IN_SECONDS;
+    //     } else {
+    //         // Should not happen, but fallback
+    //         $next_window = strtotime('tomorrow 00:30');
+    //     }
+
+    //     error_log("NEXT PROCESSING WINDOW: " . date('Y-m-d H:i:s', $next_window));
+    //     error_log("Next window in WP timezone: " . wp_date('Y-m-d H:i:s', $next_window));
+
+    //     // Clear any existing scheduled event first
+    //     wp_clear_scheduled_hook('coupon_automation_manual_trigger');
+
+    //     // Schedule processing for the next window
+    //     $scheduled = wp_schedule_single_event($next_window, 'coupon_automation_manual_trigger');
+
+    //     if ($scheduled !== false) {
+    //         error_log("SUCCESSFULLY SCHEDULED FOR NEXT WINDOW");
+
+    //         // Verify it was actually scheduled
+    //         $verification = wp_next_scheduled('coupon_automation_manual_trigger');
+    //         error_log("Verification - next scheduled: " . ($verification ? date('Y-m-d H:i:s', $verification) : 'NOT FOUND'));
+
+    //         $this->logger->info('Scheduled processing for next window', [
+    //             'scheduled_time' => date('Y-m-d H:i:s', $next_window),
+    //             'current_hour' => $current_hour,
+    //             'verification' => $verification
+    //         ]);
+
+    //         // Store this for admin display
+    //         update_option('coupon_automation_scheduled_for', $next_window);
+    //     } else {
+    //         error_log("FAILED TO SCHEDULE FOR NEXT WINDOW");
+    //         $this->logger->error('Failed to schedule processing for next window');
+    //     }
+
+    //     error_log("=== SCHEDULING COMPLETED ===");
+    // }
 
     // TIMEZONE DEBUG: Add this function to check timezone issues
     // Add this somewhere in the plugin (maybe in admin debug):
@@ -336,49 +278,6 @@ class Coupon_Automation_API_Manager
         error_log("=== END TIMEZONE DEBUG ===");
     }
 
-    /**
-     * Schedule processing for the next processing window
-     * Called when manual trigger happens outside processing window
-     */
-    // private function schedule_for_next_window()
-    // {
-    //     error_log("=== SCHEDULING FOR NEXT PROCESSING WINDOW ===");
-
-    //     $current_hour = (int) current_time('H');
-
-    //     // Calculate next processing window start time
-    //     if ($current_hour < 24) {
-    //         // Schedule for tonight/early tomorrow morning at 00:30
-    //         $next_window = strtotime('today 00:30') + DAY_IN_SECONDS;
-    //     } else {
-    //         // Should not happen, but fallback
-    //         $next_window = strtotime('tomorrow 00:30');
-    //     }
-
-    //     error_log("NEXT PROCESSING WINDOW: " . date('Y-m-d H:i:s', $next_window));
-
-    //     // Clear any existing scheduled event first
-    //     wp_clear_scheduled_hook('coupon_automation_manual_trigger');
-
-    //     // Schedule processing for the next window
-    //     $scheduled = wp_schedule_single_event($next_window, 'coupon_automation_manual_trigger');
-
-    //     if ($scheduled !== false) {
-    //         error_log("SUCCESSFULLY SCHEDULED FOR NEXT WINDOW");
-    //         $this->logger->info('Scheduled processing for next window', [
-    //             'scheduled_time' => date('Y-m-d H:i:s', $next_window),
-    //             'current_hour' => $current_hour
-    //         ]);
-
-    //         // Store this for admin display
-    //         update_option('coupon_automation_scheduled_for', $next_window);
-    //     } else {
-    //         error_log("FAILED TO SCHEDULE FOR NEXT WINDOW");
-    //         $this->logger->error('Failed to schedule processing for next window');
-    //     }
-
-    //     error_log("=== SCHEDULING COMPLETED ===");
-    // }
 
     private function cleanup_processing_flags()
     {
@@ -512,6 +411,14 @@ class Coupon_Automation_API_Manager
             'today' => $today
         ]);
 
+        // If no coupons to process, complete immediately
+        if ($total_coupons === 0) {
+            error_log("NO COUPONS TO PROCESS - COMPLETING");
+            $this->logger->info('No coupons to process, completing');
+            $this->complete_processing();
+            return;
+        }
+
         // Get current progress (for coupons, not advertisers)
         $processed_count = get_transient('api_processed_count') ?: 0;
         error_log("Previously processed coupons: $processed_count");
@@ -550,38 +457,56 @@ class Coupon_Automation_API_Manager
             return;
         }
 
-        // Process the chunk of COUPONS
-        $this->process_coupon_chunk($all_data, $chunk_start, $chunk_size);
+        try {
+            // Process the chunk of COUPONS
+            error_log("CALLING process_coupon_chunk...");
+            $this->process_coupon_chunk($all_data, $chunk_start, $chunk_size);
+            error_log("process_coupon_chunk COMPLETED");
 
-        $new_processed_count = $chunk_end;
-        set_transient('api_processed_count', $new_processed_count, DAY_IN_SECONDS);
+            $new_processed_count = $chunk_end;
+            set_transient('api_processed_count', $new_processed_count, DAY_IN_SECONDS);
 
-        error_log("Chunk completed. Progress: $new_processed_count / $total_coupons");
+            error_log("Chunk completed. Progress: $new_processed_count / $total_coupons");
 
-        $this->logger->debug('Coupon chunk processed', [
-            'processed' => $new_processed_count,
-            'total' => $total_coupons,
-            'progress_percent' => round(($new_processed_count / $total_coupons) * 100, 2)
-        ]);
+            $this->logger->debug('Coupon chunk processed', [
+                'processed' => $new_processed_count,
+                'total' => $total_coupons,
+                'progress_percent' => round(($new_processed_count / $total_coupons) * 100, 2)
+            ]);
 
-        // Check if processing is complete
-        if ($new_processed_count >= $total_coupons) {
-            error_log("ALL COUPON PROCESSING COMPLETE FOR TODAY");
-            $this->complete_processing();
-            return;
+            // Check if processing is complete
+            if ($new_processed_count >= $total_coupons) {
+                error_log("ALL COUPON PROCESSING COMPLETE FOR TODAY");
+                $this->complete_processing();
+                return;
+            }
+
+            // Schedule next chunk with longer delay to be nice to APIs
+            error_log("Scheduling next coupon chunk in 2 minutes...");
+            wp_schedule_single_event(time() + 120, 'fetch_and_store_data_event');
+
+            // Extend the processing lock for the next chunk
+            set_transient('fetch_process_running', time(), 30 * MINUTE_IN_SECONDS);
+
+            $this->logger->debug('Scheduled next coupon chunk processing', [
+                'next_chunk_start' => $new_processed_count,
+                'remaining_coupons' => $total_coupons - $new_processed_count
+            ]);
+        } catch (Exception $e) {
+            error_log("CHUNK PROCESSING FAILED: " . $e->getMessage());
+            $this->logger->error('Chunk processing failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'chunk_start' => $chunk_start,
+                'chunk_size' => $chunk_size
+            ]);
+
+            // Update status and cleanup
+            update_option('coupon_automation_processing_status', 'failed');
+            update_option('coupon_automation_last_error', $e->getMessage());
+            $this->cleanup_processing_flags();
+            throw $e;
         }
-
-        // Schedule next chunk with longer delay to be nice to APIs
-        error_log("Scheduling next coupon chunk in 2 minutes...");
-        wp_schedule_single_event(time() + 120, 'fetch_and_store_data_event');
-
-        // Extend the processing lock for the next chunk
-        set_transient('fetch_process_running', time(), 30 * MINUTE_IN_SECONDS);
-
-        $this->logger->debug('Scheduled next coupon chunk processing', [
-            'next_chunk_start' => $new_processed_count,
-            'remaining_coupons' => $total_coupons - $new_processed_count
-        ]);
     }
 
     private function process_coupon_chunk($all_data, $offset, $chunk_size)
@@ -888,7 +813,7 @@ class Coupon_Automation_API_Manager
 
     private function complete_processing()
     {
-        error_log("=== COMPLETING PROCESSING ==="); // ADD THIS LINE
+        error_log("=== COMPLETING PROCESSING ===");
         $this->logger->info('API processing completed successfully');
 
         // Clear cached data and processing flags
@@ -898,19 +823,35 @@ class Coupon_Automation_API_Manager
         delete_transient('api_processed_count');
         delete_transient('fetch_process_running');
 
-        // Clear scheduled events - ADD THIS LINE
+        // Clear scheduled events
         wp_clear_scheduled_hook('fetch_and_store_data_event');
+        wp_clear_scheduled_hook('coupon_automation_manual_trigger');
 
         // Reset stop flag
         update_option('coupon_automation_stop_requested', false);
 
+        // Update processing status
+        update_option('coupon_automation_processing_status', 'idle');
+
+        // Clear any error status
+        delete_option('coupon_automation_last_error');
+        delete_option('coupon_automation_scheduled_for');
+
         // Update last sync time
         update_option('coupon_automation_last_sync', current_time('mysql'));
 
-        // CRITICAL: Mark today as processed - ADD THIS LINE
+        // CRITICAL: Mark today as processed
         update_option('coupon_automation_last_sync_date', current_time('Y-m-d'));
 
-        error_log("PROCESSING COMPLETED - TODAY MARKED AS DONE"); // ADD THIS LINE
+        // Log completion stats
+        $total_processed = get_transient('api_processed_count') ?: 0;
+        $this->logger->info('Processing completed successfully', [
+            'total_processed' => $total_processed,
+            'completion_time' => current_time('mysql'),
+            'date' => current_time('Y-m-d')
+        ]);
+
+        error_log("PROCESSING COMPLETED - TODAY MARKED AS DONE (processed: $total_processed)");
     }
 
 
@@ -940,11 +881,38 @@ class Coupon_Automation_API_Manager
         $current_hour = (int) current_time('H');
         $in_processing_window = ($current_hour >= 0 && $current_hour < 6);
 
-        $is_running = (bool) get_transient('fetch_process_running');
+        // Check if actually running by examining lock
+        $lock_timestamp = get_transient('fetch_process_running');
+        $is_running = false;
+
+        if ($lock_timestamp) {
+            $lock_age = time() - $lock_timestamp;
+            // Consider it running only if lock is recent (less than 30 minutes)
+            $is_running = ($lock_age < 1800);
+        }
+
+        // Get stored processing status
+        $stored_status = get_option('coupon_automation_processing_status', 'idle');
+
+        // If lock expired but status is still "running", reset it
+        if (!$is_running && $stored_status === 'running') {
+            update_option('coupon_automation_processing_status', 'idle');
+            $stored_status = 'idle';
+        }
+
         $completed_today = ($last_sync_date === $today);
+
+        // More detailed status
+        $detailed_status = $stored_status;
+        if ($is_running) {
+            $processed_count = get_transient('api_processed_count') ?: 0;
+            $detailed_status = $processed_count > 0 ? 'processing_coupons' : 'fetching_data';
+        }
 
         return [
             'is_running' => $is_running,
+            'status' => $stored_status,
+            'detailed_status' => $detailed_status,
             'processed_count' => get_transient('api_processed_count') ?: 0,
             'stop_requested' => get_option('coupon_automation_stop_requested', false),
             'last_sync' => get_option('coupon_automation_last_sync'),
@@ -954,6 +922,10 @@ class Coupon_Automation_API_Manager
             'current_hour' => $current_hour,
             'in_processing_window' => $in_processing_window,
             'can_process' => $in_processing_window && !$completed_today,
+            'lock_timestamp' => $lock_timestamp,
+            'lock_age_seconds' => $lock_timestamp ? (time() - $lock_timestamp) : null,
+            'last_error' => get_option('coupon_automation_last_error', ''),
+            'scheduled_for' => get_option('coupon_automation_scheduled_for'),
         ];
     }
     /**

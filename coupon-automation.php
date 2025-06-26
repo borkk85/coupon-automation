@@ -429,7 +429,7 @@ function coupon_automation_cron_callback() {
 }
 
 // Register the hook using a simple function (like the old system)
-add_action('coupon_automation_manual_trigger', 'coupon_automation_cron_callback');
+// add_action('coupon_automation_manual_trigger', 'coupon_automation_cron_callback');
 
 /**
  * Initialize the plugin
@@ -443,3 +443,18 @@ function coupon_automation() {
 
 // Start the plugin
 coupon_automation();
+
+if (defined('WP_DEBUG') && WP_DEBUG) {
+    add_action('init', function() {
+        if (isset($_GET['test_cron']) && current_user_can('manage_options')) {
+            error_log("=== MANUAL CRON TEST ===");
+            $api_manager = coupon_automation()->get_service('api');
+            if ($api_manager) {
+                $result = $api_manager->fetch_and_process_all_data();
+                wp_die('Cron test completed. Result: ' . ($result ? 'SUCCESS' : 'FAILED') . '. Check error logs.');
+            } else {
+                wp_die('API Manager not available');
+            }
+        }
+    });
+}

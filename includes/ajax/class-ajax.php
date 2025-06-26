@@ -87,7 +87,7 @@ class Coupon_Automation_AJAX
 
         $this->logger->info('Manual coupon fetch triggered by user', [
             'user_id' => get_current_user_id(),
-            'force_start' => isset($_POST['force_start'])
+            'current_hour' => current_time('H')
         ]);
 
         // Check if already running
@@ -95,45 +95,36 @@ class Coupon_Automation_AJAX
             wp_send_json_error(__('Processing is already running. Please wait for it to complete.', 'coupon-automation'));
         }
 
-        // Start the API processing
+        // SIMPLIFIED: Direct call to processing
         try {
+            error_log("=== AJAX MANUAL TRIGGER ===");
+            error_log("User ID: " . get_current_user_id());
+            error_log("Current time: " . current_time('c'));
+
+            // Direct call - no complex scheduling
             $result = $this->api_manager->fetch_and_process_all_data();
 
             if ($result === false) {
-                wp_send_json_error(__('Could not start processing - another process may be running.', 'coupon-automation'));
+                wp_send_json_error(__('Could not start processing. Check if already completed today or system is in maintenance.', 'coupon-automation'));
             }
 
-            // Check if processing was scheduled for later
-            $scheduled_for = get_option('coupon_automation_scheduled_for');
-            $current_hour = (int) current_time('H');
-            $in_window = ($current_hour >= 0 && $current_hour < 6);
-
-            if ($scheduled_for && !$in_window) {
-                $response_data = [
-                    'message' => sprintf(
-                        __('Processing scheduled for %s (next processing window).', 'coupon-automation'),
-                        date('Y-m-d H:i:s', $scheduled_for)
-                    ),
-                    'status' => 'scheduled',
-                    'scheduled_time' => date('Y-m-d H:i:s', $scheduled_for),
-                    'current_hour' => $current_hour
-                ];
-            } else {
-                $response_data = [
-                    'message' => __('Coupon processing started successfully. Processing will continue in the background.', 'coupon-automation'),
-                    'status' => 'started',
-                    'timestamp' => current_time('mysql')
-                ];
-            }
+            $response_data = [
+                'message' => __('Processing started successfully. Check the status dashboard for progress.', 'coupon-automation'),
+                'status' => 'started',
+                'timestamp' => current_time('mysql'),
+                'current_hour' => current_time('H')
+            ];
 
             wp_send_json_success($response_data);
         } catch (Exception $e) {
-            $this->logger->error('Failed to start coupon processing', [
+            error_log("AJAX TRIGGER FAILED: " . $e->getMessage());
+
+            $this->logger->error('Failed to start manual processing', [
                 'error' => $e->getMessage(),
                 'user_id' => get_current_user_id()
             ]);
 
-            wp_send_json_error(__('Failed to start coupon processing. Please check the logs.', 'coupon-automation'));
+            wp_send_json_error(__('Failed to start processing: ', 'coupon-automation') . $e->getMessage());
         }
     }
 

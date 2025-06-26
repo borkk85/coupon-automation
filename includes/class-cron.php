@@ -36,24 +36,6 @@ class Coupon_Automation_Cron
      */
     private $api_manager;
 
-    /**
-     * Custom cron schedules
-     * @var array
-     */
-    private $custom_schedules = [
-        'every_five_minutes' => [
-            'interval' => 300,
-            'display' => 'Every 5 Minutes'
-        ],
-        'every_thirty_minutes' => [
-            'interval' => 1800,
-            'display' => 'Every 30 Minutes'
-        ],
-        'every_two_hours' => [
-            'interval' => 7200,
-            'display' => 'Every 2 Hours'
-        ]
-    ];
 
     /**
      * Initialize cron management
@@ -64,35 +46,36 @@ class Coupon_Automation_Cron
         $this->logger = coupon_automation()->get_service('logger');
         $this->api_manager = coupon_automation()->get_service('api');
 
-        // Register custom cron schedules
-        add_filter('cron_schedules', [$this, 'add_custom_schedules']);
-
-        // Register cron hooks
+        // SIMPLIFIED: Only register the main daily sync hook
         add_action('coupon_automation_daily_sync', [$this, 'handle_daily_sync']);
         add_action('coupon_automation_cleanup', [$this, 'handle_cleanup']);
         add_action('coupon_automation_health_check', [$this, 'handle_health_check']);
-        add_action('fetch_and_store_data_event', [$this, 'handle_continue_processing']);
-        add_action('retry_generate_coupon_title', [$this, 'handle_retry_coupon_title']);
-        add_action('retry_translate_description', [$this, 'handle_retry_translate_description']);
-        add_action('coupon_automation_welcome_notification', [$this, 'handle_welcome_notification']);
 
-        // Hook into WordPress cron management - only after WordPress is fully loaded
-        add_action('wp', [$this, 'schedule_events']);
-        add_action('admin_init', [$this, 'maybe_reschedule_events']);
 
-        // Add admin notices for cron issues
-        add_action('admin_notices', [$this, 'display_cron_notices']);
+        // Schedule events on WordPress init
+        add_action('wp', [$this, 'ensure_daily_schedule']);
     }
 
-    /**
-     * Add custom cron schedules
-     * 
-     * @param array $schedules Existing schedules
-     * @return array Modified schedules
-     */
-    public function add_custom_schedules($schedules)
+    public function ensure_daily_schedule()
     {
-        return array_merge($schedules, $this->custom_schedules);
+        // Only schedule if automation is enabled
+        if (!$this->settings || !$this->settings->get('automation.auto_schedule_enabled', true)) {
+            return;
+        }
+
+        // Schedule daily sync if not already scheduled
+        if (!wp_next_scheduled('coupon_automation_daily_sync')) {
+            // Schedule for 2 AM server time daily
+            $start_time = strtotime('tomorrow 2:00 AM');
+            wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
+
+            if ($this->logger) {
+                $this->logger->info('Scheduled daily sync', [
+                    'next_run' => date('Y-m-d H:i:s', $start_time)
+                ]);
+            }
+            error_log("CRON: Scheduled daily sync for " . date('Y-m-d H:i:s', $start_time));
+        }
     }
 
     /**
@@ -236,6 +219,21 @@ class Coupon_Automation_Cron
      */
     public function handle_daily_sync()
     {
+        error_log("=== DAILY SYNC TRIGGERED ===");
+        error_log("Server time: " . date('c'));
+        error_log("WordPress time: " . current_time('c'));
+        error_log("Current hour (WP): " . current_time('H'));
+
+        if (!$this->logger) {
+            error_log("ERROR: Logger service not available");
+            return;
+        }
+
+        if (!$this->api_manager) {
+            error_log("ERROR: API Manager service not available");
+            return;
+        }
+
         $this->logger->info('Daily sync cron event triggered');
 
         // Check if automation is still enabled
@@ -244,25 +242,24 @@ class Coupon_Automation_Cron
             return;
         }
 
-        // Check if already running
-        if ($this->api_manager->get_processing_status()['is_running']) {
-            $this->logger->warning('Daily sync skipped - processing already running');
-            return;
-        }
-
-        // Record cron execution
-        update_option('coupon_automation_last_cron_run', current_time('mysql'));
-
+        // SIMPLIFIED: Let the API manager handle time window logic internally
         try {
-            // Start API processing
-            $this->api_manager->fetch_and_process_all_data();
+            error_log("CALLING API MANAGER fetch_and_process_all_data");
+            $result = $this->api_manager->fetch_and_process_all_data();
 
-            $this->logger->info('Daily sync completed successfully');
+            if ($result === false) {
+                error_log("API MANAGER returned false");
+                $this->logger->warning('Daily sync returned false - may be outside window or already completed');
+            } else {
+                error_log("API MANAGER returned success");
+                $this->logger->info('Daily sync completed successfully');
+            }
 
             // Update success counter
             $success_count = get_option('coupon_automation_cron_success_count', 0);
             update_option('coupon_automation_cron_success_count', $success_count + 1);
         } catch (Exception $e) {
+            error_log("DAILY SYNC FAILED: " . $e->getMessage());
             $this->logger->error('Daily sync failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -271,10 +268,11 @@ class Coupon_Automation_Cron
             // Update failure counter
             $failure_count = get_option('coupon_automation_cron_failure_count', 0);
             update_option('coupon_automation_cron_failure_count', $failure_count + 1);
-
-            // Send admin notification for failures
-            $this->send_failure_notification('Daily sync failed: ' . $e->getMessage());
         }
+
+        // Record cron execution
+        update_option('coupon_automation_last_cron_run', current_time('mysql'));
+        error_log("=== DAILY SYNC COMPLETED ===");
     }
 
     /**
