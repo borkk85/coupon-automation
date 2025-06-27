@@ -66,7 +66,9 @@ class Coupon_Automation_Cron
         // Schedule daily sync if not already scheduled
         if (!wp_next_scheduled('coupon_automation_daily_sync')) {
             // Schedule for 2 AM server time daily
-            $start_time = strtotime('tomorrow 2:00 AM');
+            // $start_time = strtotime('tomorrow 2:00 AM');
+            $timezone = function_exists('wp_timezone') ? wp_timezone() : new \DateTimeZone(get_option('timezone_string') ?: 'UTC');
+            $start_time = (new \DateTimeImmutable('tomorrow 2:00', $timezone))->getTimestamp();
             wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
 
             if ($this->logger) {
@@ -137,7 +139,9 @@ class Coupon_Automation_Cron
 
         if (!wp_next_scheduled($hook)) {
             // Schedule weekly cleanup at 3 AM
-            $start_time = strtotime('next sunday 3:00 AM');
+            // $start_time = strtotime('next sunday 3:00 AM');
+            $timezone = function_exists('wp_timezone') ? wp_timezone() : new \DateTimeZone(get_option('timezone_string') ?: 'UTC');
+            $start_time = (new \DateTimeImmutable('next sunday 3:00', $timezone))->getTimestamp();
 
             $scheduled = wp_schedule_event($start_time, 'weekly', $hook);
 
@@ -164,7 +168,8 @@ class Coupon_Automation_Cron
 
         if (!wp_next_scheduled($hook)) {
             // Schedule hourly health checks
-            $start_time = time() + HOUR_IN_SECONDS;
+            // $start_time = time() + HOUR_IN_SECONDS;
+            $start_time = current_time('timestamp') + HOUR_IN_SECONDS;
 
             $scheduled = wp_schedule_event($start_time, 'hourly', $hook);
 
@@ -484,32 +489,36 @@ class Coupon_Automation_Cron
      */
     private function get_optimal_start_time($interval)
     {
-        $current_time = time();
+        // $current_time = time();
+        $current_time = current_time('timestamp');
+        $timezone = function_exists('wp_timezone') ? wp_timezone() : new \DateTimeZone(get_option('timezone_string') ?: 'UTC');
 
         switch ($interval) {
             case 'hourly':
                 // Start at the next hour
-                return strtotime('+1 hour', $current_time);
+                // return strtotime('+1 hour', $current_time);
+                return $current_time + HOUR_IN_SECONDS;
 
             case 'twicedaily':
                 // Start at next 6 AM or 6 PM
-                $next_6am = strtotime('tomorrow 6:00 AM');
-                $next_6pm = strtotime('today 6:00 PM');
-
-                if ($current_time < $next_6pm && $next_6pm > $current_time) {
+                // $next_6am = strtotime('tomorrow 6:00 AM');
+                // $next_6pm = strtotime('today 6:00 PM');
+                $next_6am = (new \DateTimeImmutable('tomorrow 6:00', $timezone))->getTimestamp();
+                $next_6pm = (new \DateTimeImmutable('today 18:00', $timezone))->getTimestamp();
+                if ($current_time < $next_6pm) {
                     return $next_6pm;
-                } else {
-                    return $next_6am;
                 }
+                return $next_6am;
 
             case 'daily':
                 // Start at 2 AM tomorrow (low traffic time)
-                return strtotime('tomorrow 2:00 AM');
+                // return strtotime('tomorrow 2:00 AM');
+                return (new \DateTimeImmutable('tomorrow 2:00', $timezone))->getTimestamp();
 
             case 'weekly':
                 // Start next Sunday at 2 AM
-                return strtotime('next sunday 2:00 AM');
-
+                // return strtotime('next sunday 2:00 AM');
+                return (new \DateTimeImmutable('next sunday 2:00', $timezone))->getTimestamp();
             default:
                 // Default to 1 hour from now
                 return $current_time + HOUR_IN_SECONDS;

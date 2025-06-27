@@ -58,8 +58,9 @@ class Coupon_Automation_API_Manager
         add_action('coupon_automation_daily_sync', [$this, 'fetch_and_process_all_data']);
         add_action('fetch_and_store_data_event', [$this, 'continue_processing']);
 
-        // REMOVED: Complex manual trigger registration
-        error_log("API Manager initialized with simplified hooks");
+        if ($this->settings && $this->settings->get('general.enable_debug_logging', false)) {
+            $this->logger->debug('API Manager initialized with simplified hooks');
+        }
     }
 
     /**
