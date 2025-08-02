@@ -448,13 +448,29 @@ if (defined('WP_DEBUG') && WP_DEBUG) {
     add_action('init', function() {
         if (isset($_GET['test_cron']) && current_user_can('manage_options')) {
             error_log("=== MANUAL CRON TEST ===");
+            $cron = coupon_automation()->get_service('cron');
+            if ($cron) {
+                $cron->handle_daily_sync();
+                wp_die('Cron test completed. Check error logs.');
+            } else {
+                wp_die('Cron service not available');
+            }
+        }
+        
+        if (isset($_GET['test_direct']) && current_user_can('manage_options')) {
+            error_log("=== DIRECT API TEST ===");
             $api_manager = coupon_automation()->get_service('api');
             if ($api_manager) {
                 $result = $api_manager->fetch_and_process_all_data();
-                wp_die('Cron test completed. Result: ' . ($result ? 'SUCCESS' : 'FAILED') . '. Check error logs.');
+                wp_die('Direct API test completed. Result: ' . ($result ? 'SUCCESS' : 'FAILED') . '. Check error logs.');
             } else {
                 wp_die('API Manager not available');
             }
+        }
+        
+        if (isset($_GET['reset_daily_flag']) && current_user_can('manage_options')) {
+            delete_option('coupon_automation_last_sync_date');
+            wp_die('Daily sync flag reset. You can now run processing again today.');
         }
     });
 }

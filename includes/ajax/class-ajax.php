@@ -95,13 +95,33 @@ class Coupon_Automation_AJAX
             wp_send_json_error(__('Processing is already running. Please wait for it to complete.', 'coupon-automation'));
         }
 
-        // SIMPLIFIED: Direct call to processing
+        // Check time window first
+        $current_hour = (int) current_time('H');
+        $in_window = ($current_hour >= 0 && $current_hour < 6);
+        
+        if (!$in_window) {
+            // Schedule for next processing window
+            $this->schedule_for_next_window();
+            
+            wp_send_json_success([
+                'message' => sprintf(
+                    __('Processing scheduled for next window (00:00-06:00). Current time: %s', 'coupon-automation'),
+                    current_time('H:i')
+                ),
+                'status' => 'scheduled',
+                'scheduled_for' => get_option('coupon_automation_scheduled_for'),
+                'current_hour' => $current_hour
+            ]);
+            return;
+        }
+
+        // We're in the window, process immediately
         try {
-            error_log("=== AJAX MANUAL TRIGGER ===");
+            error_log("=== AJAX MANUAL TRIGGER (IN WINDOW) ===");
             error_log("User ID: " . get_current_user_id());
             error_log("Current time: " . current_time('c'));
 
-            // Direct call - no complex scheduling
+            // Direct call within time window
             $result = $this->api_manager->fetch_and_process_all_data();
 
             if ($result === false) {
@@ -125,6 +145,45 @@ class Coupon_Automation_AJAX
             ]);
 
             wp_send_json_error(__('Failed to start processing: ', 'coupon-automation') . $e->getMessage());
+        }
+    }
+
+    private function schedule_for_next_window()
+    {
+        error_log("=== SCHEDULING FOR NEXT PROCESSING WINDOW ===");
+
+        $current_hour = (int) current_time('H');
+        $current_timestamp = current_time('timestamp');
+        
+        // Calculate next window start (00:00)
+        if ($current_hour >= 6) {
+            // After 6 AM, schedule for midnight tonight
+            $next_window = strtotime('tomorrow midnight', $current_timestamp);
+        } else {
+            // Between 00:00-06:00, we shouldn't be here, but schedule for tomorrow
+            $next_window = strtotime('tomorrow midnight', $current_timestamp);
+        }
+
+        error_log("Current time: " . date('Y-m-d H:i:s', $current_timestamp));
+        error_log("Next window: " . date('Y-m-d H:i:s', $next_window));
+
+        // Clear any existing scheduled event
+        wp_clear_scheduled_hook('coupon_automation_daily_sync');
+
+        // Schedule the event
+        $scheduled = wp_schedule_single_event($next_window, 'coupon_automation_daily_sync');
+
+        if ($scheduled !== false) {
+            error_log("Successfully scheduled for next window");
+            update_option('coupon_automation_scheduled_for', $next_window);
+            
+            $this->logger->info('Scheduled processing for next window', [
+                'scheduled_time' => date('Y-m-d H:i:s', $next_window),
+                'current_hour' => $current_hour
+            ]);
+        } else {
+            error_log("Failed to schedule for next window");
+            $this->logger->error('Failed to schedule processing for next window');
         }
     }
 

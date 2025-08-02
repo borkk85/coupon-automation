@@ -235,14 +235,18 @@ class Coupon_Automation_Cron
         }
 
         if (!$this->api_manager) {
-            error_log("ERROR: API Manager service not available");
-            return;
+            // Try to get API manager if not already set
+            $this->api_manager = coupon_automation()->get_service('api');
+            if (!$this->api_manager) {
+                error_log("ERROR: API Manager service not available");
+                return;
+            }
         }
 
         $this->logger->info('Daily sync cron event triggered');
 
         // Check if automation is still enabled
-        if (!$this->settings->get('automation.auto_schedule_enabled', true)) {
+        if ($this->settings && !$this->settings->get('automation.auto_schedule_enabled', true)) {
             $this->logger->info('Auto scheduling disabled, skipping daily sync');
             return;
         }
