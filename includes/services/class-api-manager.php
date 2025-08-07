@@ -98,10 +98,10 @@ class Coupon_Automation_API_Manager
         $current_hour = (int) current_time('H');
         $today = current_time('Y-m-d');
         $last_sync_date = get_option('coupon_automation_last_sync_date');
-        
+
         // Determine if this is manual (AJAX) or automatic (cron)
         $is_manual = wp_doing_ajax() && isset($_POST['action']) && $_POST['action'] === 'fetch_coupons';
-        
+
         error_log("Processing type: " . ($is_manual ? 'MANUAL' : 'AUTOMATIC'));
         error_log("Current hour: $current_hour");
         error_log("Today: $today, Last sync: $last_sync_date");
@@ -163,7 +163,7 @@ class Coupon_Automation_API_Manager
         set_transient($lock_key, time(), 30 * MINUTE_IN_SECONDS);
         update_option('coupon_automation_processing_status', 'running');
         update_option('coupon_automation_last_sync', current_time('mysql'));
-        
+
         error_log("PROCESSING STARTED");
 
         try {
@@ -179,13 +179,12 @@ class Coupon_Automation_API_Manager
 
             error_log("PROCESSING DATA IN CHUNKS...");
             $this->process_data_in_chunks($all_data);
-            
         } catch (Exception $e) {
             error_log("PROCESSING FAILED: " . $e->getMessage());
             $this->logger->error('Processing failed', [
                 'error' => $e->getMessage()
             ]);
-            
+
             update_option('coupon_automation_processing_status', 'failed');
             update_option('coupon_automation_last_error', $e->getMessage());
             $this->cleanup_processing_flags();
@@ -198,7 +197,7 @@ class Coupon_Automation_API_Manager
     public function trigger_manual_processing()
     {
         error_log("=== MANUAL TRIGGER REQUESTED ===");
-        
+
         // Simple direct call - no complex scheduling
         return $this->fetch_and_process_all_data();
     }
@@ -389,10 +388,14 @@ class Coupon_Automation_API_Manager
         $chunk_size = $this->settings->get('general.batch_size', 10);
         $today = current_time('Y-m-d');
 
-        // PRIORITIZE CAMPAIGNS (actual coupons) over advertisers
+        // CRITICAL FIX: Store the data structure for continuation
+        // This ensures we don't lose data between chunks
+        set_transient('coupon_automation_processing_data', $all_data, DAY_IN_SECONDS);
+
+        // Calculate totals correctly
         $total_campaigns = isset($all_data['addrevenue']['campaigns']) ? count($all_data['addrevenue']['campaigns']) : 0;
         $total_awin = isset($all_data['awin']['promotions']) ? count($all_data['awin']['promotions']) : 0;
-        $total_coupons = $total_campaigns + $total_awin; // Only count actual coupons
+        $total_coupons = $total_campaigns + $total_awin;
 
         $total_advertisers = isset($all_data['addrevenue']['advertisers']) ? count($all_data['addrevenue']['advertisers']) : 0;
 
@@ -412,6 +415,9 @@ class Coupon_Automation_API_Manager
             'today' => $today
         ]);
 
+        // Store total count for reference
+        set_transient('coupon_automation_total_count', $total_coupons, DAY_IN_SECONDS);
+
         // If no coupons to process, complete immediately
         if ($total_coupons === 0) {
             error_log("NO COUPONS TO PROCESS - COMPLETING");
@@ -420,18 +426,18 @@ class Coupon_Automation_API_Manager
             return;
         }
 
-        // Get current progress (for coupons, not advertisers)
+        // Get current progress
         $processed_count = get_transient('api_processed_count') ?: 0;
         error_log("Previously processed coupons: $processed_count");
 
-        // CRITICAL: Check if we should continue processing today
+        // Check if we should continue processing today
         if ($processed_count >= $total_coupons) {
             error_log("ALL COUPONS ALREADY PROCESSED - COMPLETING");
             $this->complete_processing();
             return;
         }
 
-        // Process one chunk at a time (COUPONS, not advertisers)
+        // Process one chunk at a time
         $chunk_start = $processed_count;
         $chunk_end = min($chunk_start + $chunk_size, $total_coupons);
 
@@ -482,16 +488,23 @@ class Coupon_Automation_API_Manager
                 return;
             }
 
-            // Schedule next chunk with longer delay to be nice to APIs
-            error_log("Scheduling next coupon chunk in 2 minutes...");
-            wp_schedule_single_event(time() + 120, 'fetch_and_store_data_event');
+            // Schedule next chunk with shorter delay
+            error_log("Scheduling next coupon chunk in 1 minute...");
+            $scheduled = wp_schedule_single_event(time() + 60, 'fetch_and_store_data_event');
+
+            // Force WordPress to check and run cron events
+            if ($scheduled !== false) {
+                spawn_cron();
+                error_log("spawn_cron() called to ensure timely execution");
+            }
 
             // Extend the processing lock for the next chunk
             set_transient('fetch_process_running', time(), 30 * MINUTE_IN_SECONDS);
 
             $this->logger->debug('Scheduled next coupon chunk processing', [
                 'next_chunk_start' => $new_processed_count,
-                'remaining_coupons' => $total_coupons - $new_processed_count
+                'remaining_coupons' => $total_coupons - $new_processed_count,
+                'scheduled_for' => date('Y-m-d H:i:s', time() + 60)
             ]);
         } catch (Exception $e) {
             error_log("CHUNK PROCESSING FAILED: " . $e->getMessage());
@@ -780,95 +793,198 @@ class Coupon_Automation_API_Manager
      * Continue processing (scheduled event handler)
      */
     public function continue_processing()
-    {
-        error_log("=== CONTINUE PROCESSING TRIGGERED ===");
+{
+    error_log("=== CONTINUE PROCESSING TRIGGERED ===");
 
-        // Check if we're still in the daily processing window
-        $current_hour = (int) current_time('H');
-        $today = current_time('Y-m-d');
-        $last_sync_date = get_option('coupon_automation_last_sync_date');
+    // Check if we're still in the daily processing window
+    $current_hour = (int) current_time('H');
+    $today = current_time('Y-m-d');
+    $last_sync_date = get_option('coupon_automation_last_sync_date');
 
-        if ($current_hour >= 6) {
-            error_log("CONTINUE PROCESSING: OUTSIDE WINDOW (hour: $current_hour)");
-            $this->logger->info('Continue processing called outside window, stopping', [
-                'current_hour' => $current_hour
-            ]);
-            $this->complete_processing();
-            return;
-        }
-
-        if ($last_sync_date === $today) {
-            error_log("CONTINUE PROCESSING: ALREADY COMPLETED TODAY");
-            $this->logger->info('Continue processing called but already completed today');
-            $this->cleanup_processing_flags();
-            return;
-        }
-
-        // Continue with normal processing
-        $this->fetch_and_process_all_data();
+    if ($current_hour >= 6) {
+        error_log("CONTINUE PROCESSING: OUTSIDE WINDOW (hour: $current_hour)");
+        $this->logger->info('Continue processing called outside window, stopping', [
+            'current_hour' => $current_hour
+        ]);
+        $this->complete_processing();
+        return;
     }
+
+    if ($last_sync_date === $today) {
+        error_log("CONTINUE PROCESSING: ALREADY COMPLETED TODAY");
+        $this->logger->info('Continue processing called but already completed today');
+        $this->cleanup_processing_flags();
+        return;
+    }
+
+    // Check stop flag
+    if (get_option('coupon_automation_stop_requested', false)) {
+        error_log("STOP REQUESTED - ABORTING CONTINUATION");
+        $this->logger->info('Processing stop requested, aborting continuation');
+        $this->cleanup_processing_flags();
+        return;
+    }
+
+    // Don't check for lock - we ARE the process that owns it
+    // Refresh the lock to show we're still active
+    $lock_key = 'fetch_process_running';
+    set_transient($lock_key, time(), 30 * MINUTE_IN_SECONDS);
+    
+    error_log("LOCK REFRESHED - CONTINUING CHUNK PROCESSING");
+
+    try {
+        // CRITICAL FIX: Get the complete processing data, not just cached API data
+        $all_data = get_transient('coupon_automation_processing_data');
+        
+        if (empty($all_data)) {
+            error_log("NO PROCESSING DATA AVAILABLE - TRYING CACHED API DATA");
+            // Fallback to reconstructing from cached API data
+            $all_data = $this->get_cached_api_data();
+            
+            if (empty($all_data)) {
+                error_log("NO DATA AVAILABLE AT ALL - CANNOT CONTINUE");
+                $this->logger->error('No data available for continuation');
+                $this->complete_processing();
+                return;
+            }
+        }
+
+        // Log what data we have
+        $total_campaigns = isset($all_data['addrevenue']['campaigns']) ? count($all_data['addrevenue']['campaigns']) : 0;
+        $total_awin = isset($all_data['awin']['promotions']) ? count($all_data['awin']['promotions']) : 0;
+        error_log("CONTINUE PROCESSING DATA: AddRevenue campaigns: $total_campaigns, AWIN: $total_awin");
+
+        // Continue processing chunks directly
+        error_log("RESUMING CHUNK PROCESSING...");
+        $this->process_data_in_chunks($all_data);
+        
+    } catch (Exception $e) {
+        error_log("CONTINUE PROCESSING FAILED: " . $e->getMessage());
+        $this->logger->error('Continue processing failed', [
+            'error' => $e->getMessage()
+        ]);
+        
+        update_option('coupon_automation_processing_status', 'failed');
+        update_option('coupon_automation_last_error', $e->getMessage());
+        $this->cleanup_processing_flags();
+        throw $e;
+    }
+}
+
+    private function get_cached_api_data()
+{
+    $all_data = [];
+
+    // Get AddRevenue cached data
+    $cached_advertisers = get_transient('addrevenue_advertisers_data');
+    $cached_campaigns = get_transient('addrevenue_campaigns_data');
+    
+    error_log("Cached AddRevenue data check - Advertisers: " . 
+              ($cached_advertisers !== false ? count($cached_advertisers) : 'NONE') . 
+              ", Campaigns: " . 
+              ($cached_campaigns !== false ? count($cached_campaigns) : 'NONE'));
+    
+    if ($cached_advertisers !== false && $cached_campaigns !== false) {
+        $all_data['addrevenue'] = [
+            'advertisers' => $cached_advertisers,
+            'campaigns' => $cached_campaigns
+        ];
+    }
+
+    // Get AWIN cached data
+    $cached_promotions = get_transient('awin_promotions_data');
+    error_log("Cached AWIN promotions: " . 
+              ($cached_promotions !== false ? count($cached_promotions) : 'NONE'));
+    
+    if ($cached_promotions !== false) {
+        $all_data['awin'] = [
+            'promotions' => $cached_promotions
+        ];
+    }
+
+    return $all_data;
+}
 
     /**
      * Complete processing
      */
 
     private function complete_processing()
-    {
-        error_log("=== COMPLETING PROCESSING ===");
-        $this->logger->info('API processing completed successfully');
+{
+    error_log("=== COMPLETING PROCESSING ===");
+    $this->logger->info('API processing completed successfully');
 
-        // Clear cached data and processing flags
-        delete_transient('addrevenue_advertisers_data');
-        delete_transient('addrevenue_campaigns_data');
-        delete_transient('awin_promotions_data');
-        delete_transient('api_processed_count');
-        delete_transient('fetch_process_running');
+    // Clear cached data and processing flags
+    delete_transient('addrevenue_advertisers_data');
+    delete_transient('addrevenue_campaigns_data');
+    delete_transient('awin_promotions_data');
+    delete_transient('api_processed_count');
+    delete_transient('fetch_process_running');
+    delete_transient('coupon_automation_processing_data'); // Clean up processing data
+    delete_transient('coupon_automation_total_count'); // Clean up total count
 
-        // Clear scheduled events
-        wp_clear_scheduled_hook('fetch_and_store_data_event');
-        wp_clear_scheduled_hook('coupon_automation_manual_trigger');
+    // Clear scheduled events
+    wp_clear_scheduled_hook('fetch_and_store_data_event');
+    wp_clear_scheduled_hook('coupon_automation_manual_trigger');
 
-        // Reset stop flag
-        update_option('coupon_automation_stop_requested', false);
+    // Reset stop flag
+    update_option('coupon_automation_stop_requested', false);
 
-        // Update processing status
-        update_option('coupon_automation_processing_status', 'idle');
+    // Update processing status
+    update_option('coupon_automation_processing_status', 'idle');
 
-        // Clear any error status
-        delete_option('coupon_automation_last_error');
-        delete_option('coupon_automation_scheduled_for');
+    // Clear any error status
+    delete_option('coupon_automation_last_error');
+    delete_option('coupon_automation_scheduled_for');
 
-        // Update last sync time
-        update_option('coupon_automation_last_sync', current_time('mysql'));
+    // Update last sync time
+    update_option('coupon_automation_last_sync', current_time('mysql'));
 
-        // CRITICAL: Mark today as processed
-        update_option('coupon_automation_last_sync_date', current_time('Y-m-d'));
+    // Mark today as processed
+    update_option('coupon_automation_last_sync_date', current_time('Y-m-d'));
 
-        // Log completion stats
-        $total_processed = get_transient('api_processed_count') ?: 0;
-        $this->logger->info('Processing completed successfully', [
-            'total_processed' => $total_processed,
-            'completion_time' => current_time('mysql'),
-            'date' => current_time('Y-m-d')
-        ]);
+    // Log completion stats
+    $total_processed = get_transient('api_processed_count') ?: 0;
+    $this->logger->info('Processing completed successfully', [
+        'total_processed' => $total_processed,
+        'completion_time' => current_time('mysql'),
+        'date' => current_time('Y-m-d')
+    ]);
 
-        error_log("PROCESSING COMPLETED - TODAY MARKED AS DONE (processed: $total_processed)");
-    }
+    error_log("PROCESSING COMPLETED - TODAY MARKED AS DONE (processed: $total_processed)");
+}
+
 
 
     /**
      * Stop processing
      */
     public function stop_processing()
-    {
-        $this->logger->info('Processing stop requested');
-        update_option('coupon_automation_stop_requested', true);
+{
+    $this->logger->info('Processing stop requested');
+    update_option('coupon_automation_stop_requested', true);
 
-        // Clear scheduled events
-        wp_clear_scheduled_hook('fetch_and_store_data_event');
+    // Clear the lock immediately
+    delete_transient('fetch_process_running');
+    
+    // Clear progress counter so it doesn't resume from wrong position
+    delete_transient('api_processed_count');
+    
+    // Clear processing data
+    delete_transient('coupon_automation_processing_data');
+    delete_transient('coupon_automation_total_count');
 
-        return true;
-    }
+    // Clear scheduled events
+    wp_clear_scheduled_hook('fetch_and_store_data_event');
+    wp_clear_scheduled_hook('coupon_automation_manual_trigger');
+    
+    // Update status
+    update_option('coupon_automation_processing_status', 'stopped');
+
+    $this->logger->info('Processing stopped and cleaned up');
+
+    return true;
+}
 
     /**
      * Get processing status
@@ -933,31 +1049,33 @@ class Coupon_Automation_API_Manager
      * Clear processing cache
      */
     public function clear_cache()
-    {
-        $transients = [
-            'fetch_process_running',
-            'addrevenue_advertisers_data',
-            'addrevenue_campaigns_data',
-            'awin_promotions_data',
-            'api_processed_count'
-        ];
+{
+    $transients = [
+        'fetch_process_running',
+        'addrevenue_advertisers_data',
+        'addrevenue_campaigns_data',
+        'awin_promotions_data',
+        'api_processed_count',
+        'coupon_automation_processing_data',
+        'coupon_automation_total_count'
+    ];
 
-        foreach ($transients as $transient) {
-            delete_transient($transient);
-        }
-
-        // ADDED: Also clear daily sync date when clearing cache (for testing)
-        delete_option('coupon_automation_last_sync_date');
-
-        // Clear scheduled events
-        wp_clear_scheduled_hook('fetch_and_store_data_event');
-
-        // Reset stop flag
-        update_option('coupon_automation_stop_requested', false);
-
-        $this->logger->info('API cache cleared (including daily sync date)');
-        return true;
+    foreach ($transients as $transient) {
+        delete_transient($transient);
     }
+
+    // Also clear daily sync date when clearing cache (for testing)
+    delete_option('coupon_automation_last_sync_date');
+
+    // Clear scheduled events
+    wp_clear_scheduled_hook('fetch_and_store_data_event');
+
+    // Reset stop flag
+    update_option('coupon_automation_stop_requested', false);
+
+    $this->logger->info('API cache cleared (including daily sync date and processing data)');
+    return true;
+}
 
     /**
      * Get API handler
