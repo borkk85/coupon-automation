@@ -1,476 +1,464 @@
 <?php
+
 /**
  * Plugin Name: Coupon Automation
- * Description: Automates the creation of coupons based on data from addrevenue.io and AWIN APIs with enhanced security and performance.
- * Version: 2.0.0
+ * Description: Automates the creation of coupons based on data from the addrevenue.io API.
+ * Version: 1.0
  * Author: borkk
- * Text Domain: coupon-automation
- * Domain Path: /languages
- * Requires at least: 5.0
- * Tested up to: 6.4
- * Requires PHP: 7.4
- * License: GPL v2 or later
- * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  */
 
-// Prevent direct access
 if (!defined('ABSPATH')) {
     exit;
 }
 
-// Define plugin constants
-define('COUPON_AUTOMATION_VERSION', '2.0.0');
-define('COUPON_AUTOMATION_PLUGIN_FILE', __FILE__);
-define('COUPON_AUTOMATION_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('COUPON_AUTOMATION_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('COUPON_AUTOMATION_PLUGIN_BASENAME', plugin_basename(__FILE__));
+require_once plugin_dir_path(__FILE__) . 'includes/api-handler.php';
+require_once plugin_dir_path(__FILE__) . 'includes/main-functions.php';
+require_once plugin_dir_path(__FILE__) . 'includes/populate_brands.php';
 
-// Check PHP version compatibility
-if (version_compare(PHP_VERSION, '7.4', '<')) {
-    add_action('admin_notices', function() {
-        echo '<div class="notice notice-error"><p>';
-        echo esc_html__('Coupon Automation requires PHP 7.4 or higher. Please update your PHP version.', 'coupon-automation');
-        echo '</p></div>';
-    });
-    return;
+add_action('admin_init', 'coupon_automation_settings');
+
+add_action('admin_enqueue_scripts', 'enqueue_coupon_automation_assets');
+function enqueue_coupon_automation_assets()
+{
+    wp_register_style('coupon-styles', plugin_dir_url(__FILE__) . 'assets/css/styles.css', false, '1.0.0');
+    wp_enqueue_style('coupon-styles');
+
+    wp_enqueue_script('coupon-automation-script', plugin_dir_url(__FILE__) . 'assets/js/coupon-automation.js', array('jquery'), '1.0.0', true);
+    wp_localize_script('coupon-automation-script', 'couponAutomation', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('fetch_coupons_nonce'),
+        'stop_nonce' => wp_create_nonce('stop_automation_nonce'),
+        'clear_nonce' => wp_create_nonce('clear_transients_nonce'),
+        'purge_nonce' => wp_create_nonce('purge_expired_coupons_nonce')
+    ));
 }
 
-// Load the autoloader early
-require_once COUPON_AUTOMATION_PLUGIN_DIR . 'includes/class-autoloader.php';
-Coupon_Automation_Autoloader::init();
+function coupon_automation_settings()
+{
+    register_setting('coupon-automation-settings-group', 'addrevenue_api_token');
+    register_setting('coupon-automation-settings-group', 'yourl_api_token');
+    register_setting('coupon-automation-settings-group', 'openai_api_key');
+    register_setting('coupon-automation-settings-group', 'coupon_title_prompt');
+    register_setting('coupon-automation-settings-group', 'description_prompt');
+    register_setting('coupon-automation-settings-group', 'brand_description_prompt');
+    register_setting('coupon-automation-settings-group', 'why_we_love_prompt');
+    register_setting('coupon-automation-settings-group', 'awin_api_token');
+    register_setting('coupon-automation-settings-group', 'awin_publisher_id');
+}
+add_action('admin_init', 'coupon_automation_settings');
 
-/**
- * Main plugin class
- */
-final class Coupon_Automation {
-    
-    /**
-     * Plugin instance
-     * @var Coupon_Automation
-     */
-    private static $instance = null;
-    
-    /**
-     * Services container
-     * @var array
-     */
-    private $services = [];
-    
-    /**
-     * Plugin initialization status
-     * @var bool
-     */
-    private $initialized = false;
-    
-    /**
-     * Get plugin instance (Singleton pattern)
-     * 
-     * @return Coupon_Automation
-     */
-    public static function get_instance() {
-        if (null === self::$instance) {
-            self::$instance = new self();
+add_action('admin_menu', 'coupon_automation_menu');
+function coupon_automation_menu()
+{
+    add_options_page(
+        'Coupon Automation Settings',
+        'Coupon Automation',
+        'manage_options',
+        'coupon-automation',
+        'coupon_automation_options_page'
+    );
+}
+
+function clear_coupon_automation_flags()
+{
+    delete_transient('fetch_process_running');
+    delete_transient('addrevenue_processed_count');
+    delete_option('coupon_automation_stop_requested');
+    error_log('Coupon automation flags and transients cleared manually.');
+}
+
+function handle_clear_coupon_flags()
+{
+    error_log('handle_clear_coupon_flags called');
+
+    if (!check_ajax_referer('clear_transients_nonce', 'nonce', false)) {
+        error_log('Nonce check failed in handle_clear_coupon_flags');
+        wp_send_json_error('Security check failed.');
+        return;
+    }
+
+    error_log('Nonce check passed, proceeding to clear flags');
+
+    clear_coupon_automation_flags();
+
+    error_log('Flags cleared successfully');
+    wp_send_json_success('Coupon automation flags and transients cleared successfully.');
+}
+add_action('wp_ajax_clear_coupon_flags', 'handle_clear_coupon_flags');
+
+function coupon_automation_options_page()
+{
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (isset($_POST['submit_api_keys'])) {
+            update_option('addrevenue_api_token', sanitize_text_field($_POST['addrevenue_api_token']));
+            update_option('yourl_api_token', sanitize_text_field($_POST['yourl_api_token']));
+            update_option('openai_api_key', sanitize_text_field($_POST['openai_api_key']));
+            update_option('coupon_title_prompt', sanitize_text_field($_POST['coupon_title_prompt']));
+            update_option('description_prompt', sanitize_text_field($_POST['description_prompt']));
+            update_option('brand_description_prompt', wp_kses($_POST['brand_description_prompt'], array(
+                'h4' => array('style' => array()),
+                'p' => array('style' => array()),
+                'strong' => array(),
+                'em' => array(),
+                'ul' => array(),
+                'li' => array(),
+                'br' => array(),
+            )));
+            update_option('why_we_love_prompt', wp_kses($_POST['why_we_love_prompt'], array(
+                'h4' => array('style' => array()),
+                'p' => array('style' => array()),
+                'strong' => array(),
+                'img' => array(
+                    'src' => array(),
+                    'alt' => array(),
+                    'width' => array(),
+                    'height' => array(),
+                    'class' => array(),
+                ),
+                'em' => array(),
+                'a' => array(
+                    'href' => array(),
+                    'title' => array(),
+                    'target' => array(),
+                    'rel' => array(),
+                ),
+                'ul' => array(),
+                'li' => array(),
+                'br' => array(),
+            )));
+            update_option('fallback_terms', sanitize_textarea_field($_POST['fallback_terms']));
+            update_option('awin_api_token', sanitize_text_field($_POST['awin_api_token']));
+            update_option('awin_publisher_id', sanitize_text_field($_POST['awin_publisher_id']));
+            echo '<div class="updated"><p>Settings saved.</p></div>';
         }
-        return self::$instance;
-    }
-    
-    /**
-     * Constructor - Initialize the plugin
-     */
-    private function __construct() {
-        $this->init_hooks();
-    }
-    
-    /**
-     * Prevent cloning
-     */
-    private function __clone() {}
-    
-    /**
-     * Prevent unserialization
-     */
-    public function __wakeup() {}
-    
-    /**
-     * Initialize WordPress hooks
-     */
-    private function init_hooks() {
-        add_action('plugins_loaded', [$this, 'init'], 0);
-        add_action('init', [$this, 'load_textdomain']);
-        
-        // Activation and deactivation hooks - these run before plugins_loaded
-        register_activation_hook(COUPON_AUTOMATION_PLUGIN_FILE, [$this, 'activate']);
-        register_deactivation_hook(COUPON_AUTOMATION_PLUGIN_FILE, [$this, 'deactivate']);
-    }
-    
-    /**
-     * Initialize the plugin
-     */
-    public function init() {
-        if ($this->initialized) {
-            return;
-        }
-        
-        try {
-            // Load core services
-            $this->load_core_services();
-            
-            // Initialize services
-            $this->init_services();
-            
-            $this->initialized = true;
-            
-            // Hook for other plugins to interact with our plugin
-            do_action('coupon_automation_loaded', $this);
-            
-        } catch (Exception $e) {
-            $this->handle_error('Plugin initialization failed', $e);
-        }
-    }
-    
-    /**
-     * Clear plugin scheduled events directly
-     * Used during deactivation when services might not be available
-     */
-    private function clear_plugin_scheduled_events() {
-        $events = [
-            'coupon_automation_daily_sync',
-            'coupon_automation_cleanup',
-            'coupon_automation_health_check',
-            'fetch_and_store_data_event',
-            'retry_generate_coupon_title',
-            'retry_translate_description',
-            'coupon_automation_welcome_notification'
-        ];
-        
-        foreach ($events as $event) {
-            wp_clear_scheduled_hook($event);
-        }
-    }
-    
-    /**
-     * Load plugin textdomain for internationalization
-     */
-    public function load_textdomain() {
-        load_plugin_textdomain(
-            'coupon-automation',
-            false,
-            dirname(COUPON_AUTOMATION_PLUGIN_BASENAME) . '/languages/'
-        );
-    }
-    
-    /**
-     * Load core services
-     */
-    private function load_core_services() {
-        // Security service (highest priority)
-        $this->services['security'] = new Coupon_Automation_Security();
-        
-        // Settings service
-        $this->services['settings'] = new Coupon_Automation_Settings();
-        
-        // Database service
-        $this->services['database'] = new Coupon_Automation_Database();
-        
-        // Logger service
-        $this->services['logger'] = new Coupon_Automation_Logger();
-        
-        // API service
-        $this->services['api'] = new Coupon_Automation_API_Manager();
-        
-        // Admin service - only in admin
-        if (is_admin()) {
-            $this->services['admin'] = new Coupon_Automation_Admin();
-        }
-        
-        // AJAX service - only during AJAX requests
-        if (wp_doing_ajax()) {
-            $this->services['ajax'] = new Coupon_Automation_AJAX();
-        }
-        
-        // Cron service
-        $this->services['cron'] = new Coupon_Automation_Cron();
-        
-        // Brand service
-        $this->services['brand'] = new Coupon_Automation_Brand_Manager();
-        
-        // Coupon service
-        $this->services['coupon'] = new Coupon_Automation_Coupon_Manager();
-    }
-    
-    /**
-     * Initialize all loaded services
-     */
-    private function init_services() {
-        foreach ($this->services as $service) {
-            if (method_exists($service, 'init')) {
-                $service->init();
-            }
-        }
-    }
-    
-    /**
-     * Get a service instance
-     * 
-     * @param string $service Service name
-     * @return mixed|null Service instance or null if not found
-     */
-    public function get_service($service) {
-        return isset($this->services[$service]) ? $this->services[$service] : null;
-    }
-    
-    /**
-     * Plugin activation
-     */
-    public function activate() {
-        try {
-            // Autoloader is already loaded at this point
-            
-            // Run activation procedures
-            $activator = new Coupon_Automation_Activator();
-            $activator->activate();
-            
-            // Schedule basic cron events directly without using the Cron class
-            $this->schedule_activation_events();
-            
-            // Flush rewrite rules
-            flush_rewrite_rules();
-            
-        } catch (Exception $e) {
-            $this->handle_error('Plugin activation failed', $e);
-            // Prevent activation if there's an error
-            wp_die(
-                esc_html__('Coupon Automation activation failed. Please check your server error logs.', 'coupon-automation'),
-                esc_html__('Plugin Activation Error', 'coupon-automation'),
-                ['back_link' => true]
-            );
-        }
-    }
-    
-    /**
-     * Plugin deactivation
-     */
-    public function deactivate() {
-        try {
-            // Clear scheduled events
-            if (isset($this->services['cron'])) {
-                $this->services['cron']->clear_scheduled_events();
+
+        if (isset($_POST['action']) && $_POST['action'] === 'fetch_coupons_now') {
+            if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], 'fetch_coupons_nonce')) {
+                // fetch_and_process_new_coupons();
+                schedule_fetch_and_store_data();
+                echo '<div class="updated"><p>Coupons fetching and processing scheduled.</p></div>';
             } else {
-                // Fallback - clear events directly without requiring the cron class services
-                $this->clear_plugin_scheduled_events();
+                echo '<div class="error"><p>Nonce verification failed.</p></div>';
             }
-            
-            // Clear transients
-            $this->clear_plugin_transients();
-            
-            // Flush rewrite rules
-            flush_rewrite_rules();
-            
-        } catch (Exception $e) {
-            $this->handle_error('Plugin deactivation failed', $e);
         }
     }
-    
-    /**
-     * Clear all plugin-related transients
-     */
-    private function clear_plugin_transients() {
-        $transients = [
-            'fetch_process_running',
-            'addrevenue_advertisers_data',
-            'addrevenue_campaigns_data',
-            'awin_promotions_data',
-            'api_processed_count'
-        ];
-        
-        foreach ($transients as $transient) {
-            delete_transient($transient);
+
+?>
+    <div class="coupon-forms_wrap">
+        <h1>Coupon Automation Settings</h1>
+        <form method="post">
+            <table class="form-table">
+                <tr valign="top">
+                    <th scope="row">AddRevenue API Token</th>
+                    <td><input type="password" name="addrevenue_api_token" value="<?php echo esc_attr(get_option('addrevenue_api_token')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Yourl API token</th>
+                    <td><input type="password" name="yourl_api_token" value="<?php echo esc_attr(get_option('yourl_api_token')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">AWIN API Token</th>
+                    <td><input type="password" name="awin_api_token" value="<?php echo esc_attr(get_option('awin_api_token')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">AWIN Publisher ID</th>
+                    <td><input type="password" name="awin_publisher_id" value="<?php echo esc_attr(get_option('awin_publisher_id')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">OpenAI API Key</th>
+                    <td><input type="password" name="openai_api_key" value="<?php echo esc_attr(get_option('openai_api_key')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Coupon Title Prompt</th>
+                    <td><textarea name="coupon_title_prompt" rows="4" cols="50"><?php echo esc_textarea(get_option('coupon_title_prompt')); ?></textarea></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Coupon Terms Prompt</th>
+                    <td><textarea name="description_prompt" rows="4" cols="50"><?php echo esc_textarea(get_option('description_prompt')); ?></textarea></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Terms Fallback</th>
+                    <td><textarea name="fallback_terms" rows="4" cols="50"><?php echo esc_textarea(get_option('fallback_terms')); ?></textarea></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Brand Description Prompt</th>
+                    <td>
+                        <?php
+                        $brand_prompt_content = get_option('brand_description_prompt');
+                        wp_editor(
+                            $brand_prompt_content,
+                            'brand_description_prompt',
+                            array(
+                                'textarea_name' => 'brand_description_prompt',
+                                'textarea_rows' => 10,
+                                'media_buttons' => true,
+                                'tinymce'       => true,
+                                'quicktags'     => true,
+                            )
+                        );
+                        ?>
+                    </td>
+                </tr>
+
+                <tr valign="top">
+                    <th scope="row">Why We Love Prompt</th>
+                    <td>
+                        <?php
+                        $why_we_love_content = get_option('why_we_love_prompt');
+                        wp_editor(
+                            $why_we_love_content,
+                            'why_we_love_prompt',
+                            array(
+                                'textarea_name' => 'why_we_love_prompt',
+                                'textarea_rows' => 10,
+                                'media_buttons' => true,
+                                'tinymce'       => true,
+                                'quicktags'     => true,
+                            )
+                        );
+                        ?>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button('Save Settings', 'primary', 'submit_api_keys'); ?>
+        </form>
+        <div class="fetch_buttons">
+            <h2>Automation Control</h2>
+            <div class="coupon-messages"></div> <!-- Container for AJAX messages -->
+            <button type="button" id="fetch-coupons-button" class="button button-primary">Start Automation</button>
+            <button type="button" id="stop-automation-button" class="button button-primary">Stop Automation</button>
+            <button type="button" id="clear-flags-button" class="button button-secondary">Clear Transients</button>
+            <button type="button" id="purge-expired-coupons" class="button button-warning">Purge Expired Coupons</button>
+        </div>
+    </div>
+<?php
+}
+
+
+function add_new_brand_notification($brand_name, $brand_id)
+{
+    $notifications = get_option('coupon_automation_notifications', array());
+    $notifications[] = array(
+        'type' => 'brand',
+        'name' => $brand_name,
+        'id' => $brand_id,
+        'time' => current_time('mysql')
+    );
+    update_option('coupon_automation_notifications', array_slice($notifications, -50));
+}
+
+function add_new_coupon_notification($coupon_title, $brand_name, $coupon_id)
+{
+    $notifications = get_option('coupon_automation_notifications', array());
+    $notifications[] = array(
+        'type' => 'coupon',
+        'title' => $coupon_title,
+        'brand' => $brand_name,
+        'id' => $coupon_id,
+        'time' => current_time('mysql')
+    );
+    update_option('coupon_automation_notifications', array_slice($notifications, -50));
+}
+
+function display_coupon_automation_notifications()
+{
+    $notifications = get_option('coupon_automation_notifications', array());
+
+    if (!empty($notifications)) {
+        echo '<div id="coupon-automation-notifications" class="notice notice-success is-dismissible">';
+        echo '<h3>Coupon Automation Notifications <span class="notification-count">(' . count($notifications) . ')</span></h3>';
+        echo '<div class="notification-content">';
+        foreach ($notifications as $notification) {
+            $message = '';
+            if ($notification['type'] === 'brand') {
+                if (isset($notification['id'])) {
+                    $term = get_term($notification['id'], 'brands');
+                    if (!is_wp_error($term) && $term) {
+                        $edit_url = get_edit_term_link($term->term_id, 'brands', 'coupons');
+                        $message = sprintf('New brand added: <a href="%s">%s</a>', esc_url($edit_url), esc_html($notification['name']));
+                    } else {
+                        $message = sprintf('New brand added: %s (Brand may have been renamed or deleted)', esc_html($notification['name']));
+                    }
+                } else {
+                    $message = sprintf('New brand added: %s', esc_html($notification['name']));
+                }
+            } elseif ($notification['type'] === 'coupon') {
+                if (isset($notification['id'])) {
+                    $post = get_post($notification['id']);
+                    if ($post && $post->post_type === 'coupons') {
+                        $edit_url = get_edit_post_link($notification['id']);
+                        $message = sprintf('New coupon added: <a href="%s">%s</a> for %s', esc_url($edit_url), esc_html($notification['title']), esc_html($notification['brand']));
+                    } else {
+                        // Try to find the coupon by title
+                        $existing_coupon = get_page_by_title($notification['title'], OBJECT, 'coupons');
+                        if ($existing_coupon) {
+                            $edit_url = get_edit_post_link($existing_coupon->ID);
+                            $message = sprintf('Coupon found with different ID: <a href="%s">%s</a> for %s', esc_url($edit_url), esc_html($notification['title']), esc_html($notification['brand']));
+                        } else {
+                            $message = sprintf('Coupon not found by ID or title: %s for %s', esc_html($notification['title']), esc_html($notification['brand']));
+                        }
+                    }
+                } else {
+                    $message = sprintf('New coupon added: %s for %s (ID not available)', esc_html($notification['title']), esc_html($notification['brand']));
+                }
+            }
+
+            if (!empty($message)) {
+                echo '<p>' . $message . ' at ' . esc_html($notification['time']) . '</p>';
+            }
         }
-    }
-    
-    /**
-     * Handle errors consistently
-     * 
-     * @param string $message Error message
-     * @param Exception $e Exception object
-     */
-    private function handle_error($message, Exception $e) {
-        if (isset($this->services['logger'])) {
-            $this->services['logger']->error($message, [
-                'exception' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-        } else {
-            error_log(sprintf('Coupon Automation Error: %s - %s', $message, $e->getMessage()));
-        }
-        
-        // Show admin notice for critical errors
-        if (is_admin()) {
-            add_action('admin_notices', function() use ($message) {
-                echo '<div class="notice notice-error"><p>';
-                echo esc_html(sprintf(__('Coupon Automation: %s', 'coupon-automation'), $message));
-                echo '</p></div>';
+        echo '</div>';
+        echo '<button id="clear-notifications" class="button button-secondary">Clear All Notifications</button>';
+        echo '<button id="close-notifications" class="button button-secondary">Close</button>';
+        echo '</div>';
+
+        echo '<style>
+            #coupon-automation-notifications {
+                max-height: 300px;
+                overflow-y: auto;
+                padding: 10px;
+                position: relative;
+            }
+            #coupon-automation-notifications h3 {
+                margin-top: 0;
+            }
+            .notification-content {
+                max-height: 200px;
+                overflow-y: auto;
+                margin-bottom: 10px;
+            }
+            #close-notifications {
+                margin-left: 10px;
+            }
+        </style>';
+
+        echo '<script>
+            jQuery(document).ready(function($) {
+                $("#clear-notifications").on("click", function() {
+                    $.ajax({
+                        url: ajaxurl,
+                        type: "POST",
+                        data: {
+                            action: "clear_coupon_notifications",
+                            nonce: "' . wp_create_nonce('clear_coupon_notifications_nonce') . '"
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $("#coupon-automation-notifications").fadeOut();
+                            }
+                        }
+                    });
+                });
+                
+                $("#close-notifications").on("click", function() {
+                    $("#coupon-automation-notifications").fadeOut();
+                });
+                
+                $(".notice-dismiss").on("click", function() {
+                    $("#coupon-automation-notifications").fadeOut();
+                });
             });
-        }
-    }
-    
-    /**
-     * Get plugin version
-     * 
-     * @return string
-     */
-    public function get_version() {
-        return COUPON_AUTOMATION_VERSION;
-    }
-    
-    /**
-     * Get plugin path
-     * 
-     * @return string
-     */
-    public function get_plugin_path() {
-        return COUPON_AUTOMATION_PLUGIN_DIR;
-    }
-    
-    /**
-     * Get plugin URL
-     * 
-     * @return string
-     */
-    public function get_plugin_url() {
-        return COUPON_AUTOMATION_PLUGIN_URL;
-    }
-    
-    /**
-     * Schedule basic events during activation
-     * Simple scheduling without requiring full service initialization
-     */
-    private function schedule_basic_events() {
-        // Schedule daily sync - default to daily interval
-        if (!wp_next_scheduled('coupon_automation_daily_sync')) {
-            $start_time = strtotime('tomorrow 2:00 AM');
-            wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
-        }
-        
-        // Schedule weekly cleanup
-        if (!wp_next_scheduled('coupon_automation_cleanup')) {
-            $start_time = strtotime('next sunday 3:00 AM');
-            wp_schedule_event($start_time, 'weekly', 'coupon_automation_cleanup');
-        }
-        
-        // Schedule hourly health check
-        if (!wp_next_scheduled('coupon_automation_health_check')) {
-            $start_time = time() + HOUR_IN_SECONDS;
-            wp_schedule_event($start_time, 'hourly', 'coupon_automation_health_check');
-        }
-    }
-    
-    /**
-     * Schedule events during activation (renamed method)
-     * Simple scheduling without requiring full service initialization
-     */
-    private function schedule_activation_events() {
-        // Schedule daily sync - default to daily interval
-        if (!wp_next_scheduled('coupon_automation_daily_sync')) {
-            $start_time = strtotime('tomorrow 2:00 AM');
-            wp_schedule_event($start_time, 'daily', 'coupon_automation_daily_sync');
-        }
-        
-        // Schedule weekly cleanup
-        if (!wp_next_scheduled('coupon_automation_cleanup')) {
-            $start_time = strtotime('next sunday 3:00 AM');
-            wp_schedule_event($start_time, 'weekly', 'coupon_automation_cleanup');
-        }
-        
-        // Schedule hourly health check
-        if (!wp_next_scheduled('coupon_automation_health_check')) {
-            $start_time = time() + HOUR_IN_SECONDS;
-            wp_schedule_event($start_time, 'hourly', 'coupon_automation_health_check');
-        }
+        </script>';
     }
 }
 
-/**
- * Simple cron callback function (like the old system)
- * This ensures the function exists during cron execution
- */
-function coupon_automation_cron_callback() {
-    error_log("=== CRON CALLBACK TRIGGERED ===");
-    error_log("Current time: " . current_time('c'));
-    error_log("Server time: " . date('c'));
-    
-    // Ensure plugin is loaded
-    if (!function_exists('coupon_automation')) {
-        error_log("Plugin function not available during cron");
-        return;
+add_action('admin_notices', 'display_coupon_automation_notifications');
+
+function clear_coupon_notifications()
+{
+    check_ajax_referer('clear_coupon_notifications_nonce', 'nonce');
+    update_option('coupon_automation_notifications', array());
+    wp_send_json_success();
+}
+add_action('wp_ajax_clear_coupon_notifications', 'clear_coupon_notifications');
+
+function purge_expired_coupons()
+{
+    $today = date('Ymd'); // Current date in ACF date format
+
+    $args = array(
+        'post_type' => 'coupons',
+        'posts_per_page' => -1,
+        'meta_query' => array(
+            'relation' => 'AND',
+            array(
+                'key' => 'valid_untill',
+                'compare' => 'EXISTS',
+            ),
+            array(
+                'key' => 'valid_untill',
+                'value' => '',
+                'compare' => '!=',
+            ),
+            array(
+                'key' => 'valid_untill',
+                'value' => $today,
+                'compare' => '<',
+                'type' => 'DATE'
+            )
+        )
+    );
+
+    $expired_coupons = new WP_Query($args);
+
+    $purged_count = 0;
+
+    if ($expired_coupons->have_posts()) {
+        while ($expired_coupons->have_posts()) {
+            $expired_coupons->the_post();
+            $coupon_id = get_the_ID();
+
+            wp_trash_post($coupon_id);
+
+            $brand_terms = wp_get_post_terms($coupon_id, 'brands');
+            if (!empty($brand_terms) && !is_wp_error($brand_terms)) {
+                $brand_slug = $brand_terms[0]->slug;
+
+                add_post_meta($coupon_id, '_redirect_to_brand', home_url('/brands/' . $brand_slug), true);
+            }
+
+            $purged_count++;
+        }
     }
-    
-    $plugin = coupon_automation();
-    if (!$plugin) {
-        error_log("Plugin instance not available during cron");
-        return;
-    }
-    
-    $api_manager = $plugin->get_service('api');
-    if (!$api_manager) {
-        error_log("API Manager service not available during cron");
-        return;
-    }
-    
-    error_log("All services available - calling fetch_and_process_all_data");
-    
-    try {
-        $api_manager->fetch_and_process_all_data();
-    } catch (Exception $e) {
-        error_log("Cron execution failed: " . $e->getMessage());
-    }
-    
-    error_log("=== CRON CALLBACK COMPLETED ===");
+
+    wp_reset_postdata();
+
+    return $purged_count;
 }
 
-// Register the hook using a simple function (like the old system)
-// add_action('coupon_automation_manual_trigger', 'coupon_automation_cron_callback');
+function handle_purge_expired_coupons()
+{
+    check_ajax_referer('purge_expired_coupons_nonce', 'nonce');
 
-/**
- * Initialize the plugin
- * 
- * @return Coupon_Automation
- */
-function coupon_automation() {
-    return Coupon_Automation::get_instance();
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('You do not have permission to perform this action.');
+    }
+
+    $purged_count = purge_expired_coupons();
+
+    wp_send_json_success("Purged $purged_count expired coupons.");
 }
+add_action('wp_ajax_purge_expired_coupons', 'handle_purge_expired_coupons');
 
+function redirect_trashed_coupons()
+{
+    if (is_404()) {
+        global $wpdb;
+        $current_url = home_url($_SERVER['REQUEST_URI']);
 
-// Start the plugin
-coupon_automation();
+        $trashed_post = $wpdb->get_row($wpdb->prepare(
+            "SELECT ID, post_type FROM $wpdb->posts WHERE post_name = %s AND post_type = 'coupons' AND post_status = 'trash'",
+            basename($current_url)
+        ));
 
-if (defined('WP_DEBUG') && WP_DEBUG) {
-    add_action('init', function() {
-        if (isset($_GET['test_cron']) && current_user_can('manage_options')) {
-            error_log("=== MANUAL CRON TEST ===");
-            $cron = coupon_automation()->get_service('cron');
-            if ($cron) {
-                $cron->handle_daily_sync();
-                wp_die('Cron test completed. Check error logs.');
-            } else {
-                wp_die('Cron service not available');
+        if ($trashed_post && $trashed_post->post_type == 'coupons') {
+            $redirect_url = get_post_meta($trashed_post->ID, '_redirect_to_brand', true);
+            if ($redirect_url) {
+                wp_redirect($redirect_url, 301);
+                exit;
             }
         }
-        
-        if (isset($_GET['test_direct']) && current_user_can('manage_options')) {
-            error_log("=== DIRECT API TEST ===");
-            $api_manager = coupon_automation()->get_service('api');
-            if ($api_manager) {
-                $result = $api_manager->fetch_and_process_all_data();
-                wp_die('Direct API test completed. Result: ' . ($result ? 'SUCCESS' : 'FAILED') . '. Check error logs.');
-            } else {
-                wp_die('API Manager not available');
-            }
-        }
-        
-        if (isset($_GET['reset_daily_flag']) && current_user_can('manage_options')) {
-            delete_option('coupon_automation_last_sync_date');
-            wp_die('Daily sync flag reset. You can now run processing again today.');
-        }
-    });
+    }
 }
+add_action('template_redirect', 'redirect_trashed_coupons');
+
