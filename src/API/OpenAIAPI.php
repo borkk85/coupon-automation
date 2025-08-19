@@ -1,5 +1,7 @@
 <?php
 
+namespace CouponAutomation\API;
+
 /**
  * OpenAI API implementation
  */

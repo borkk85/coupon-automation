@@ -1,5 +1,7 @@
 <?php
 
+namespace CouponAutomation\API;
+
 /**
  * YOURLS API implementation
  */
@@ -12,7 +14,7 @@ class YourlsAPI extends BaseAPI {
         $this->username = get_option('yourls_username');
         $this->password = get_option('yourls_password');
         $this->apiKey = get_option('yourls_api_token');
-        $this->baseUrl = 'https://www.adealsweden.com/r./yourls-api.php';
+        $this->baseUrl = 'https://dev.adealsweden.com/y./yourls-api.php';
     }
     
     public function testConnection() {

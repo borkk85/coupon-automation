@@ -1,5 +1,7 @@
 <?php
 
+namespace CouponAutomation\Admin;
+
 /**
  * Settings management
  */

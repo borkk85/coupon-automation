@@ -1,5 +1,7 @@
 <?php
 
+namespace CouponAutomation\Core;
+
 /**
  * Fired during plugin deactivation
  */
