@@ -3,7 +3,7 @@
 namespace CouponAutomation\API;
 
 /**
- * YOURLS API implementation
+ * YOURLS API implementation - FIXED VERSION
  */
 class YourlsAPI extends BaseAPI {
     
@@ -17,7 +17,20 @@ class YourlsAPI extends BaseAPI {
         $this->baseUrl = 'https://dev.adealsweden.com/y./yourls-api.php';
     }
     
+    /**
+     * Override getDefaultHeaders for YOURLS (doesn't use Bearer auth)
+     */
+    protected function getDefaultHeaders() {
+        return [
+            'Content-Type' => 'application/x-www-form-urlencoded',
+        ];
+    }
+    
     public function testConnection() {
+        if (empty($this->username) || empty($this->password)) {
+            return false;
+        }
+        
         // Simple test with stats endpoint
         $response = $this->makeYourlsRequest([
             'action' => 'stats',
@@ -28,6 +41,11 @@ class YourlsAPI extends BaseAPI {
     }
     
     public function createShortUrl($longUrl, $keyword = '') {
+        if (empty($this->username) || empty($this->password)) {
+            $this->logger->error('YOURLS credentials not configured');
+            return false;
+        }
+        
         $params = [
             'action' => 'shorturl',
             'url' => $longUrl,
@@ -47,20 +65,35 @@ class YourlsAPI extends BaseAPI {
         return false;
     }
     
+    /**
+     * Make YOURLS-specific request (uses form data, not JSON)
+     */
     private function makeYourlsRequest($params) {
+        // Add authentication
         $params['username'] = $this->username;
         $params['password'] = $this->password;
         
         $response = wp_remote_post($this->baseUrl, [
-            'body' => $params,
-            'timeout' => $this->timeout
+            'body' => $params, // Pass as array, WordPress will handle encoding
+            'timeout' => $this->timeout,
+            'headers' => [
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ]
         ]);
         
-        if (!is_wp_error($response)) {
-            $body = wp_remote_retrieve_body($response);
-            return $this->parseResponse($body);
+        if (is_wp_error($response)) {
+            $this->logger->error('YOURLS API error: ' . $response->get_error_message());
+            return false;
         }
         
-        return false;
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->logger->error('YOURLS response parsing error: ' . json_last_error_msg());
+            return false;
+        }
+        
+        return $data;
     }
 }

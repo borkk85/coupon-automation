@@ -3,7 +3,7 @@
 namespace CouponAutomation\API;
 
 /**
- * AWIN API implementation
+ * AWIN API implementation - FIXED VERSION
  */
 class AwinAPI extends BaseAPI {
     
@@ -18,13 +18,19 @@ class AwinAPI extends BaseAPI {
     public function testConnection() {
         if (empty($this->publisherId)) {
             return false;
-        }
-        
-        $result = $this->makeRequest("publishers/{$this->publisherId}/accounts");
+        }        
+        // Fix: Use proper endpoint without malformed URL
+        $endpoint = sprintf("publisher/%s/promotions", $this->publisherId);
+        $result = $this->makeRequest($endpoint);
         return $result !== false;
     }
     
     public function getPromotions() {
+        if (empty($this->publisherId)) {
+            $this->logger->error('AWIN Publisher ID not configured');
+            return [];
+        }
+        
         $cache_key = 'awin_promotions_data';
         $cached = $this->getCachedResponse($cache_key);
         
@@ -47,8 +53,11 @@ class AwinAPI extends BaseAPI {
             ]
         ];
         
+        // Fix: Use correct endpoint format
+        $endpoint = sprintf("publisher/%s/promotions", $this->publisherId);
+        
         $response = $this->makeRequest(
-            "publisher/{$this->publisherId}/promotions/",
+            $endpoint,
             'POST',
             $body
         );
@@ -62,9 +71,16 @@ class AwinAPI extends BaseAPI {
     }
     
     public function getProgrammeDetails($advertiserId) {
-        return $this->makeRequest(
-            "publishers/{$this->publisherId}/programmedetails?advertiserId={$advertiserId}"
+        if (empty($this->publisherId)) {
+            return false;
+        }
+        
+        $endpoint = sprintf(
+            "publisher/%s/programmedetails?advertiserId=%s",
+            $this->publisherId,
+            $advertiserId
         );
+        
+        return $this->makeRequest($endpoint);
     }
 }
-

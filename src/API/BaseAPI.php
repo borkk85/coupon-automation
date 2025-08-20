@@ -5,7 +5,7 @@ namespace CouponAutomation\API;
 use CouponAutomation\Utils\Logger;
 
 /**
- * Base API class for all external API integrations
+ * Base API class for all external API integrations - FIXED VERSION
  */
 abstract class BaseAPI {
     
@@ -31,7 +31,7 @@ abstract class BaseAPI {
     abstract public function testConnection();
     
     /**
-     * Make API request with retry logic
+     * Make API request with retry logic - FIXED
      */
     protected function makeRequest($endpoint, $method = 'GET', $body = null, $headers = []) {
         $url = $this->baseUrl . $endpoint;
@@ -46,8 +46,14 @@ abstract class BaseAPI {
                 'headers' => array_merge($this->getDefaultHeaders(), $headers),
             ];
             
-            if ($body !== null) {
+            // FIX: Only add body for non-GET requests or when body is an array
+            if ($body !== null && $method !== 'GET') {
                 $args['body'] = is_array($body) ? json_encode($body) : $body;
+            }
+            
+            // For GET requests with parameters, append to URL
+            if ($method === 'GET' && is_array($body)) {
+                $url = add_query_arg($body, $url);
             }
             
             $response = wp_remote_request($url, $args);
@@ -67,6 +73,11 @@ abstract class BaseAPI {
                     $status_code,
                     $attempt
                 ));
+                
+                // Don't retry on client errors (4xx)
+                if ($status_code >= 400 && $status_code < 500) {
+                    return false;
+                }
             } else {
                 $this->logger->error(sprintf(
                     'API request error: %s - %s - Attempt: %d',
@@ -89,16 +100,26 @@ abstract class BaseAPI {
      * Get default headers for API requests
      */
     protected function getDefaultHeaders() {
-        return [
+        $headers = [
             'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->apiKey,
         ];
+        
+        // Only add Authorization header if API key exists
+        if (!empty($this->apiKey)) {
+            $headers['Authorization'] = 'Bearer ' . $this->apiKey;
+        }
+        
+        return $headers;
     }
     
     /**
      * Parse API response
      */
     protected function parseResponse($body) {
+        if (empty($body)) {
+            return false;
+        }
+        
         $data = json_decode($body, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
