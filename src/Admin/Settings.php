@@ -19,7 +19,7 @@ class Settings {
      */
     public function registerSettings() {
         // API Settings
-        register_setting($this->optionGroup, 'addrevenue_api_token', [
+        register_setting($this->optionGroup, 'addrevenue_api_key', [
             'sanitize_callback' => 'sanitize_text_field'
         ]);
         
@@ -31,7 +31,7 @@ class Settings {
             'sanitize_callback' => 'sanitize_text_field'
         ]);
         
-        register_setting($this->optionGroup, 'openai_api_key', [
+        register_setting($this->optionGroup, 'ai_api_key', [
             'sanitize_callback' => 'sanitize_text_field'
         ]);
         
@@ -77,7 +77,7 @@ class Settings {
             'api_credentials' => [
                 'title' => 'API Credentials',
                 'fields' => [
-                    'addrevenue_api_token' => [
+                    'addrevenue_api_key' => [
                         'label' => 'AddRevenue API Token',
                         'type' => 'password',
                         'description' => 'Your AddRevenue API authentication token'
@@ -92,7 +92,7 @@ class Settings {
                         'type' => 'text',
                         'description' => 'Your AWIN publisher account ID'
                     ],
-                    'openai_api_key' => [
+                    'ai_api_key' => [
                         'label' => 'OpenAI API Key',
                         'type' => 'password',
                         'description' => 'Your OpenAI API key for content generation'

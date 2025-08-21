@@ -3,42 +3,29 @@
 namespace CouponAutomation\API;
 
 /**
- * OpenAI API implementation - FIXED VERSION
+ * OpenAI API implementation
  */
 class OpenAIAPI extends BaseAPI {
     
     protected function loadCredentials() {
-        $this->apiKey = get_option('openai_api_key');
+        $this->apiKey = get_option('ai_api_key');
         $this->baseUrl = 'https://api.openai.com/v1/';
+
     }
     
-    /**
-     * Get default headers for OpenAI API
-     */
     protected function getDefaultHeaders() {
-        $headers = [
+        return [
             'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $this->apiKey,
         ];
-        
-        if (!empty($this->apiKey)) {
-            $headers['Authorization'] = 'Bearer ' . $this->apiKey;
-        }
-        
-        return $headers;
     }
     
     public function testConnection() {
-        // Don't pass null as body for GET request
-        $result = $this->makeRequest('models', 'GET');
-        return $result !== false && isset($result['data']);
+        $result = $this->makeRequest('models', 'GET', null, $this->getDefaultHeaders());
+        return $result !== false;
     }
     
     public function generateContent($prompt, $maxTokens = 150, $temperature = 0.7) {
-        if (empty($this->apiKey)) {
-            $this->logger->error('OpenAI API key not configured');
-            return false;
-        }
-        
         $body = [
             'model' => 'gpt-4o-mini',
             'messages' => [

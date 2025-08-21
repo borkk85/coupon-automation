@@ -3,34 +3,31 @@
 namespace CouponAutomation\API;
 
 /**
- * AWIN API implementation - FIXED VERSION
+ * AWIN API implementation
  */
 class AwinAPI extends BaseAPI {
     
     private $publisherId;
     
     protected function loadCredentials() {
+        
         $this->apiKey = get_option('awin_api_token');
         $this->publisherId = get_option('awin_publisher_id');
         $this->baseUrl = 'https://api.awin.com/';
+
     }
     
     public function testConnection() {
         if (empty($this->publisherId)) {
             return false;
-        }        
-        // Fix: Use proper endpoint without malformed URL
-        $endpoint = sprintf("publisher/%s/promotions", $this->publisherId);
-        $result = $this->makeRequest($endpoint);
+        }
+        
+        // FIX: Use publisher (singular) consistently
+        $result = $this->makeRequest("publishers/{$this->publisherId}/programmes");
         return $result !== false;
     }
     
     public function getPromotions() {
-        if (empty($this->publisherId)) {
-            $this->logger->error('AWIN Publisher ID not configured');
-            return [];
-        }
-        
         $cache_key = 'awin_promotions_data';
         $cached = $this->getCachedResponse($cache_key);
         
@@ -53,11 +50,9 @@ class AwinAPI extends BaseAPI {
             ]
         ];
         
-        // Fix: Use correct endpoint format
-        $endpoint = sprintf("publisher/%s/promotions", $this->publisherId);
-        
+        // FIX: Use publishers (plural) for promotions endpoint
         $response = $this->makeRequest(
-            $endpoint,
+            "publishers/{$this->publisherId}/promotions/",
             'POST',
             $body
         );
@@ -71,16 +66,8 @@ class AwinAPI extends BaseAPI {
     }
     
     public function getProgrammeDetails($advertiserId) {
-        if (empty($this->publisherId)) {
-            return false;
-        }
-        
-        $endpoint = sprintf(
-            "publisher/%s/programmedetails?advertiserId=%s",
-            $this->publisherId,
-            $advertiserId
+        return $this->makeRequest(
+            "publishers/{$this->publisherId}/programmedetails?advertiserId={$advertiserId}"
         );
-        
-        return $this->makeRequest($endpoint);
     }
 }

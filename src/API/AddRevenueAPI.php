@@ -8,8 +8,10 @@ namespace CouponAutomation\API;
 class AddRevenueAPI extends BaseAPI {
     
     protected function loadCredentials() {
-        $this->apiKey = get_option('addrevenue_api_token');
+        
+        $this->apiKey = get_option('addrevenue_api_key');
         $this->baseUrl = 'https://addrevenue.io/api/v2/';
+
     }
     
     public function testConnection() {
@@ -53,4 +55,3 @@ class AddRevenueAPI extends BaseAPI {
         return [];
     }
 }
-

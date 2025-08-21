@@ -3,7 +3,7 @@
 namespace CouponAutomation\API;
 
 /**
- * YOURLS API implementation - FIXED VERSION
+ * YOURLS API implementation
  */
 class YourlsAPI extends BaseAPI {
     
@@ -11,27 +11,14 @@ class YourlsAPI extends BaseAPI {
     private $password;
     
     protected function loadCredentials() {
-        $this->username = get_option('yourls_username');
-        $this->password = get_option('yourls_password');
-        $this->apiKey = get_option('yourls_api_token');
+        // FIX: Trim whitespace from all credentials
+        $this->username = trim(get_option('yourls_username'));
+        $this->password = trim(get_option('yourls_password'));
+        $this->apiKey = trim(get_option('yourls_api_token'));
         $this->baseUrl = 'https://dev.adealsweden.com/y./yourls-api.php';
     }
     
-    /**
-     * Override getDefaultHeaders for YOURLS (doesn't use Bearer auth)
-     */
-    protected function getDefaultHeaders() {
-        return [
-            'Content-Type' => 'application/x-www-form-urlencoded',
-        ];
-    }
-    
     public function testConnection() {
-        if (empty($this->username) || empty($this->password)) {
-            return false;
-        }
-        
-        // Simple test with stats endpoint
         $response = $this->makeYourlsRequest([
             'action' => 'stats',
             'format' => 'json'
@@ -41,11 +28,6 @@ class YourlsAPI extends BaseAPI {
     }
     
     public function createShortUrl($longUrl, $keyword = '') {
-        if (empty($this->username) || empty($this->password)) {
-            $this->logger->error('YOURLS credentials not configured');
-            return false;
-        }
-        
         $params = [
             'action' => 'shorturl',
             'url' => $longUrl,
@@ -65,35 +47,20 @@ class YourlsAPI extends BaseAPI {
         return false;
     }
     
-    /**
-     * Make YOURLS-specific request (uses form data, not JSON)
-     */
     private function makeYourlsRequest($params) {
-        // Add authentication
         $params['username'] = $this->username;
         $params['password'] = $this->password;
         
         $response = wp_remote_post($this->baseUrl, [
-            'body' => $params, // Pass as array, WordPress will handle encoding
-            'timeout' => $this->timeout,
-            'headers' => [
-                'Content-Type' => 'application/x-www-form-urlencoded',
-            ]
+            'body' => $params,
+            'timeout' => $this->timeout
         ]);
         
-        if (is_wp_error($response)) {
-            $this->logger->error('YOURLS API error: ' . $response->get_error_message());
-            return false;
+        if (!is_wp_error($response)) {
+            $body = wp_remote_retrieve_body($response);
+            return $this->parseResponse($body);
         }
         
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->logger->error('YOURLS response parsing error: ' . json_last_error_msg());
-            return false;
-        }
-        
-        return $data;
+        return false;
     }
 }

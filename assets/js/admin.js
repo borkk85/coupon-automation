@@ -1,4 +1,3 @@
-// assets/js/admin.js
 (function($) {
     'use strict';
     
@@ -28,19 +27,17 @@
         },
         
         initTabs: function() {
-            $('.settings-tab').on('click', function(e) {
+            $('.ca-tab').on('click', function(e) {
                 e.preventDefault();
                 const tabId = $(this).data('tab');
                 
-                // Update tab buttons
-                $('.settings-tab').removeClass('active border-blue-500 text-blue-600')
-                    .addClass('border-transparent text-gray-600');
-                $(this).addClass('active border-blue-500 text-blue-600')
-                    .removeClass('border-transparent text-gray-600');
+                // Update tab buttons - FIXED: removed Tailwind classes
+                $('.ca-tab').removeClass('active');
+                $(this).addClass('active');
                 
-                // Update tab content
-                $('.tab-content').addClass('hidden');
-                $(`#${tabId}-tab`).removeClass('hidden');
+                // Update tab content - FIXED: use active class instead of hidden
+                $('.ca-tab-content').removeClass('active');
+                $(`#${tabId}-tab`).addClass('active');
             });
         },
         
@@ -169,12 +166,15 @@
             });
         },
         
+        // FIXED: Preserve original button HTML and restore after test
         handleTestAPI: function(e) {
             e.preventDefault();
             const $btn = $(this);
             const api = $btn.data('api');
+            const originalHtml = $btn.html(); // Save original button content
             
-            $btn.html('<svg class="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>');
+            // Show loading spinner
+            $btn.html('<svg class="ca-spinner" style="width:20px;height:20px;" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>');
             
             $.ajax({
                 url: couponAutomation.ajaxUrl,
@@ -186,20 +186,24 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        $btn.html('<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
+                        $btn.html('<svg style="width:20px;height:20px;color:#10b981;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
                         CouponAutomation.updateAPIStatus(api, true);
                     } else {
-                        $btn.html('<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
+                        $btn.html('<svg style="width:20px;height:20px;color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
                         CouponAutomation.updateAPIStatus(api, false);
                     }
                     
+                    // Restore original button after 3 seconds
                     setTimeout(function() {
-                        $btn.html('<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
+                        $btn.html(originalHtml);
                     }, 3000);
                 },
                 error: function() {
-                    $btn.html('<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
+                    $btn.html('<svg style="width:20px;height:20px;color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>');
                     CouponAutomation.updateAPIStatus(api, false);
+                    setTimeout(function() {
+                        $btn.html(originalHtml);
+                    }, 3000);
                 }
             });
         },
@@ -280,7 +284,6 @@
                 const $indicator = $(this);
                 const api = $indicator.data('api');
                 
-                // Check each API on page load
                 $.ajax({
                     url: couponAutomation.ajaxUrl,
                     method: 'POST',
@@ -296,49 +299,55 @@
             });
         },
         
+        // FIXED: Use custom classes instead of Tailwind
         updateAPIStatus: function(api, isConnected) {
-            const $indicator = $(`.api-status-indicator[data-api="${api}"] span`);
+            const $indicator = $(`.api-status-indicator[data-api="${api}"]`);
             
             if (isConnected) {
-                $indicator.removeClass('bg-gray-300 bg-red-500').addClass('bg-green-500');
+                $indicator.removeClass('disconnected').addClass('connected');
             } else {
-                $indicator.removeClass('bg-gray-300 bg-green-500').addClass('bg-red-500');
+                $indicator.removeClass('connected').addClass('disconnected');
             }
         },
         
         updateLastSync: function() {
-            // Update the last sync time in the UI
             const now = new Date();
             $('.last-sync-time').text('Just now');
         },
         
+        // FIXED: Use custom loading class instead of Tailwind opacity
         setButtonLoading: function($btn, isLoading) {
             if (isLoading) {
                 $btn.prop('disabled', true)
-                    .addClass('opacity-50 cursor-not-allowed')
-                    .find('svg').addClass('animate-spin');
+                    .addClass('ca-btn-loading');
+                    
+                // Add spinner if not exists
+                if (!$btn.find('.ca-spinner').length) {
+                    $btn.prepend('<svg class="ca-spinner" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ');
+                }
             } else {
                 $btn.prop('disabled', false)
-                    .removeClass('opacity-50 cursor-not-allowed')
-                    .find('svg').removeClass('animate-spin');
+                    .removeClass('ca-btn-loading')
+                    .find('.ca-spinner').remove();
             }
         },
         
+        // FIXED: Use custom toast classes
         showToast: function(type, message) {
             const toastId = 'toast-' + Date.now();
-            const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+            const bgColor = type === 'success' ? 'bg-green' : 'bg-red';
             const icon = type === 'success' 
                 ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
                 : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
             
             const toast = `
-                <div id="${toastId}" class="toast flex items-center w-full max-w-xs p-4 mb-4 text-white ${bgColor} rounded-lg shadow-lg">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div id="${toastId}" class="ca-toast ${bgColor}">
+                    <svg class="ca-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         ${icon}
                     </svg>
-                    <div class="text-sm font-normal">${message}</div>
-                    <button class="ml-auto -mx-1.5 -my-1.5 text-white hover:text-gray-200 p-1.5" onclick="$('#${toastId}').remove()">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="ca-toast-message">${message}</div>
+                    <button class="ca-toast-close" onclick="$('#${toastId}').remove()">
+                        <svg class="ca-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
                     </button>

@@ -66,13 +66,22 @@ abstract class BaseAPI {
                     return $this->parseResponse($body);
                 }
                 
-                // Log error but continue retrying
-                $this->logger->error(sprintf(
-                    'API request failed: %s - Status: %d - Attempt: %d',
-                    $url,
-                    $status_code,
-                    $attempt
-                ));
+                if ($status_code >= 400) {
+                    $this->logger->error(sprintf(
+                        'API request failed: %s - Status: %d - Response: %s - Attempt: %d',
+                        $url,
+                        $status_code,
+                        $body,
+                        $attempt
+                    ));
+                } else {
+                    $this->logger->error(sprintf(
+                        'API request failed: %s - Status: %d - Attempt: %d',
+                        $url,
+                        $status_code,
+                        $attempt
+                    ));
+                }
                 
                 // Don't retry on client errors (4xx)
                 if ($status_code >= 400 && $status_code < 500) {

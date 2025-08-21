@@ -69,7 +69,7 @@ class DataProcessor {
         $this->logger->info('Starting AddRevenue processing');
         
         // Check if API is configured
-        if (empty(get_option('addrevenue_api_token'))) {
+        if (empty(get_option('addrevenue_api_key'))) {
             $this->logger->warning('AddRevenue API not configured');
             return;
         }
