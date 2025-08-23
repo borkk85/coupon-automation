@@ -47,7 +47,7 @@ class BrandService {
     /**
      * Clean brand name from country codes
      */
-    private function cleanBrandName($brandName) {
+    public function cleanBrandName($brandName) {
         $codes = ['EU', 'UK', 'US', 'CA', 'AU', 'NZ', 'SE', 'NO', 'DK', 'FI'];
         
         foreach ($codes as $code) {

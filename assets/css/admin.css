@@ -201,6 +201,104 @@
   display: block;
 }
 
+/* Sync Status Section */
+.ca-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.ca-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ca-status-item label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ca-text-muted);
+}
+
+.ca-status-item span {
+  font-size: 1rem;
+  color: var(--ca-text);
+}
+
+.ca-status-item small {
+  font-size: 0.75rem;
+  color: var(--ca-text-muted);
+  margin-left: 0.5rem;
+}
+
+/* Status indicators */
+.ca-status-success {
+  color: var(--ca-green);
+  font-weight: 600;
+}
+
+.ca-status-warning {
+  color: var(--ca-yellow);
+  font-weight: 600;
+}
+
+.ca-status-running {
+  color: var(--ca-blue);
+  font-weight: 600;
+}
+
+.ca-status-idle {
+  color: var(--ca-text-muted);
+  font-weight: 600;
+}
+
+/* Activity Feed */
+.ca-activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ca-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--ca-border);
+}
+
+.ca-activity-item:last-child {
+  border-bottom: none;
+}
+
+.ca-activity-time {
+  font-size: 0.75rem;
+  color: var(--ca-text-muted);
+  min-width: 80px;
+}
+
+.ca-activity-message {
+  flex: 1;
+  font-size: 0.875rem;
+}
+
+.ca-activity-start {
+  color: var(--ca-blue);
+}
+
+.ca-activity-complete {
+  color: var(--ca-green);
+}
+
+.ca-activity-error {
+  color: var(--ca-red);
+}
+
+.ca-activity-info {
+  color: var(--ca-text);
+}
+
 /* Forms */
 .ca-form-grid {
   display: grid;

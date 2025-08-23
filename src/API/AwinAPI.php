@@ -52,7 +52,7 @@ class AwinAPI extends BaseAPI {
         
         // FIX: Use publishers (plural) for promotions endpoint
         $response = $this->makeRequest(
-            "publishers/{$this->publisherId}/promotions/",
+            "publisher/{$this->publisherId}/promotions/",
             'POST',
             $body
         );

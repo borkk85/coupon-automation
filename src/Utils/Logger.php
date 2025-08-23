@@ -3,7 +3,7 @@
 namespace CouponAutomation\Utils;
 
 /**
- * Logger utility class
+ * Logger utility class with activity tracking
  */
 class Logger {
     
@@ -37,6 +37,25 @@ class Logger {
      */
     public function warning($message, $details = null) {
         $this->log('warning', $message, $details);
+    }
+    
+    /**
+     * Log activity for display in dashboard
+     */
+    public function activity($message, $type = 'info') {
+        $this->log('activity', $message, ['activity_type' => $type]);
+        
+        // Store in transient for quick access
+        $activities = get_transient('coupon_automation_activities') ?: [];
+        array_unshift($activities, [
+            'message' => $message,
+            'type' => $type,
+            'time' => current_time('timestamp')
+        ]);
+        
+        // Keep only last 10 activities
+        $activities = array_slice($activities, 0, 10);
+        set_transient('coupon_automation_activities', $activities, DAY_IN_SECONDS);
     }
     
     /**
@@ -100,5 +119,11 @@ class Logger {
              LIMIT {$limit}"
         );
     }
+    
+    /**
+     * Get recent activities for dashboard display
+     */
+    public function getRecentActivities($limit = 5) {
+        return get_transient('coupon_automation_activities') ?: [];
+    }
 }
-
