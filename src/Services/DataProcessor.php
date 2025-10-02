@@ -20,7 +20,10 @@ class DataProcessor {
     private $notifications;
     private $batchSize = 10;
     private $stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
-    
+    private $awinWindowStart = 0;
+    private $awinRequestCount = 0;
+
+   
     public function __construct() {
         $this->addRevenueAPI = new AddRevenueAPI();
         $this->awinAPI = new AwinAPI();
@@ -28,6 +31,7 @@ class DataProcessor {
         $this->couponService = new CouponService();
         $this->logger = new Logger();
         $this->notifications = new NotificationManager();
+        $this->awinWindowStart = time();
     }
     
     /**
@@ -40,6 +44,12 @@ class DataProcessor {
             return false;
         }
         
+        if (get_option('coupon_automation_stop_requested', false)) {
+            $this->logger->warning('Sync skipped because a stop was requested.');
+            $this->logger->activity('Sync skipped - automation is currently stopped.', 'warning');
+            return false;
+        }
+
         // Set running flag and status
         set_transient('fetch_process_running', true, 30 * MINUTE_IN_SECONDS);
         update_option('coupon_automation_sync_status', 'running');
@@ -58,6 +68,12 @@ class DataProcessor {
             // Process AWIN data  
             $this->processAwin();
             
+            if (get_option('coupon_automation_stop_requested', false)) {
+                $this->logger->activity('Sync stopped before completion by user.', 'warning');
+                delete_transient('fetch_process_running');
+                return false;
+            }
+
             // Update status to success
             update_option('coupon_automation_sync_status', 'success');
             update_option('coupon_automation_last_sync', current_time('timestamp'));
@@ -226,6 +242,8 @@ class DataProcessor {
                     // Get programme details if not already processed
                     if (!isset($processedAdvertisers[$advertiserId])) {
                         try {
+                            $this->throttleAwinRequests();
+                            $this->awinRequestCount++;
                             $programmeDetails = $this->awinAPI->getProgrammeDetails($advertiserId);
                             
                             if ($programmeDetails && isset($programmeDetails['programmeInfo'])) {
@@ -291,6 +309,29 @@ class DataProcessor {
             $this->stats['processed'], $this->stats['failed']));
     }
     
+    /**
+     * Throttle AWIN programme detail requests to stay within API limits
+     */
+    private function throttleAwinRequests() {
+        $window = 60;
+        $maxRequests = 18;
+        $now = time();
+
+        if (($now - $this->awinWindowStart) >= $window) {
+            $this->awinWindowStart = $now;
+            $this->awinRequestCount = 0;
+        }
+
+        if ($this->awinRequestCount >= $maxRequests) {
+            $sleepFor = $window - ($now - $this->awinWindowStart) + 1;
+            $sleepFor = max($sleepFor, 10);
+            $this->logger->info(sprintf('AWIN rate limit guard active. Sleeping %d seconds.', $sleepFor));
+            sleep($sleepFor);
+            $this->awinWindowStart = time();
+            $this->awinRequestCount = 0;
+        }
+    }
+
     /**
      * Schedule next run
      */

@@ -8,7 +8,7 @@ namespace CouponAutomation\API;
 class OpenAIAPI extends BaseAPI {
     
     protected function loadCredentials() {
-        $this->apiKey = get_option('ai_api_key');
+        $this->apiKey = get_option('openai_api_key');
         $this->baseUrl = 'https://api.openai.com/v1/';
 
     }

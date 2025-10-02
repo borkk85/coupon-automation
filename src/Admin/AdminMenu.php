@@ -37,13 +37,6 @@ class AdminMenu {
             return;
         }
         
-        // Enqueue modern CSS framework
-        wp_enqueue_style(
-            'coupon-automation-tailwind',
-            'https://cdn.tailwindcss.com',
-            [],
-            '3.0.0'
-        );
         
         // Enqueue custom styles
         wp_enqueue_style(
@@ -66,6 +59,7 @@ class AdminMenu {
         wp_localize_script('coupon-automation-admin', 'couponAutomation', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('coupon_automation_nonce'),
+            'enableStatusPolling' => false,
             'strings' => [
                 'processing' => __('Processing...', 'coupon-automation'),
                 'success' => __('Success!', 'coupon-automation'),

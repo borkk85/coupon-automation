@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Coupon Automation
  * Description: Automates coupon and brand management with AddRevenue and AWIN APIs
- * Version: 2.0.0
+ * Version: 2.0.6
  * Author: borkk
  * Text Domain: coupon-automation
  */
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('COUPON_AUTOMATION_VERSION', '2.0.0');
+define('COUPON_AUTOMATION_VERSION', '2.0.6');
 define('COUPON_AUTOMATION_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('COUPON_AUTOMATION_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('COUPON_AUTOMATION_PLUGIN_BASENAME', plugin_basename(__FILE__));

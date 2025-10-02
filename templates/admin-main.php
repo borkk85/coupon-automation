@@ -6,6 +6,40 @@
             <p>Manage API integrations and automate coupon generation</p>
         </div>
 
+        <!-- Quick Actions -->
+        <div class="ca-section">
+            <div class="ca-section-header">
+                <h2 class="ca-section-title">Quick Actions</h2>
+            </div>
+            <div class="ca-section-body">
+                <div class="ca-buttons">
+                    <button id="fetch-coupons-btn" class="ca-btn ca-btn-primary">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                        </svg>
+                        Start Sync
+                    </button>
+                    <button id="stop-automation-btn" class="ca-btn ca-btn-danger">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        Stop Sync
+                    </button>
+                    <button id="clear-cache-btn" class="ca-btn ca-btn-secondary">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        Clear Cache
+                    </button>
+                    <button id="purge-expired-btn" class="ca-btn ca-btn-warning">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Purge Expired
+                    </button>
+                </div>
+            </div>
+        </div>
         <!-- Status Cards -->
         <div class="ca-grid ca-grid-4">
             <div class="ca-card">
@@ -74,44 +108,9 @@
                 </div>
             </div>
         </div>
-
-        <!-- Quick Actions -->
         <div class="ca-section">
             <div class="ca-section-header">
-                <h2 class="ca-section-title">Quick Actions</h2>
-            </div>
-            <div class="ca-section-body">
-                <div class="ca-buttons">
-                    <button id="fetch-coupons-btn" class="ca-btn ca-btn-primary">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
-                        </svg>
-                        Start Sync
-                    </button>
-                    <button id="stop-automation-btn" class="ca-btn ca-btn-danger">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                        Stop Sync
-                    </button>
-                    <button id="clear-cache-btn" class="ca-btn ca-btn-secondary">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                        </svg>
-                        Clear Cache
-                    </button>
-                    <button id="purge-expired-btn" class="ca-btn ca-btn-warning">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        Purge Expired
-                    </button>
-                </div>
-            </div>
-        </div>
-        <div class="ca-section">
-            <div class="ca-section-header">
-                <h2 class="ca-section-title">📊 Sync Status</h2>
+                <h2 class="ca-section-title">Sync Status</h2>
             </div>
             <div class="ca-section-body">
                 <?php
@@ -127,16 +126,16 @@
                 $status_class = '';
 
                 if ($is_running) {
-                    $status_text = '🔄 Processing - Sync in progress';
+                    $status_text = 'Processing - Sync in progress';
                     $status_class = 'ca-status-running';
                 } elseif ($sync_status === 'never_run') {
-                    $status_text = '⚪ Never Run - Click "Start Sync" to begin';
+                    $status_text = 'Never Run - Click "Start Sync" to begin';
                     $status_class = 'ca-status-idle';
                 } elseif ($sync_status === 'success') {
-                    $status_text = '✅ Idle - All systems operational';
+                    $status_text = 'Idle - All systems operational';
                     $status_class = 'ca-status-success';
                 } elseif ($sync_status === 'failed') {
-                    $status_text = '⚠️ Idle - Check logs for recent errors';
+                    $status_text = 'Attention Required - Check logs for recent errors';
                     $status_class = 'ca-status-warning';
                 }
 
@@ -160,14 +159,6 @@
                     <div class="ca-status-item">
                         <label>Next Run:</label>
                         <span><?php echo $next_run_text; ?></span>
-                    </div>
-                    <div class="ca-status-item">
-                        <a href="#logs" class="ca-btn ca-btn-secondary" onclick="jQuery('.ca-tab[data-tab=logs]').click(); return false;">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                            </svg>
-                            View Logs
-                        </a>
                     </div>
                 </div>
             </div>
@@ -217,12 +208,20 @@
                         <?php foreach ($settings->getSections()['api_credentials']['fields'] as $field_name => $field): ?>
                             <div class="ca-form-group">
                                 <label class="ca-form-label"><?php echo $field['label']; ?></label>
-                                <input
-                                    type="<?php echo $field['type']; ?>"
-                                    name="<?php echo $field_name; ?>"
-                                    value="<?php echo esc_attr($settings->getFieldValue($field_name)); ?>"
-                                    class="ca-form-input" />
-                                <button type="button" class="ca-test-btn test-api-btn" data-api="<?php echo str_replace(['_api_token', '_api_key', '_username', '_password', '_publisher_id'], '', $field_name); ?>" aria-label="Test API"></button>
+                                <?php
+                                    $api_name = str_replace(['_api_token', '_api_key', '_username', '_password', '_publisher_id'], '', $field_name);
+                                    $show_test_button = !in_array($field_name, ['yourls_username', 'yourls_password', 'awin_publisher_id']);
+                                ?>
+                                <div class="ca-input-with-button">
+                                    <input
+                                        type="<?php echo $field['type']; ?>"
+                                        name="<?php echo $field_name; ?>"
+                                        value="<?php echo esc_attr($settings->getFieldValue($field_name)); ?>"
+                                        class="ca-form-input" />
+                                    <?php if ($show_test_button): ?>
+                                        <button type="button" class="ca-test-btn test-api-btn" data-api="<?php echo esc_attr($api_name); ?>" aria-label="<?php echo esc_attr(sprintf(__('Test %s', 'coupon-automation'), $field['label'])); ?>"><?php esc_html_e('Test', 'coupon-automation'); ?></button>
+                                    <?php endif; ?>
+                                </div>
                                 <p class="ca-form-help"><?php echo $field['description']; ?></p>
                             </div>
                         <?php endforeach; ?>

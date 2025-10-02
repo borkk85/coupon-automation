@@ -4,7 +4,6 @@
   const CouponAutomation = {
     init: function () {
       this.bindEvents();
-      this.checkAPIStatus();
       this.initTabs();
       this.initStatusRefresh();
     },
@@ -42,6 +41,10 @@
     },
 
     initStatusRefresh: function () {
+      if (!couponAutomation.enableStatusPolling) {
+        return;
+      }
+
       setInterval(function () {
         const isRunning = jQuery(".ca-status-running").length > 0;
         if (isRunning) {
@@ -343,26 +346,6 @@
             $("#notifications-container").fadeOut();
           }
         },
-      });
-    },
-
-    checkAPIStatus: function () {
-      $(".api-status-indicator").each(function () {
-        const $indicator = $(this);
-        const api = $indicator.data("api");
-
-        $.ajax({
-          url: couponAutomation.ajaxUrl,
-          method: "POST",
-          data: {
-            action: "test_api_connection",
-            api: api,
-            nonce: couponAutomation.nonce,
-          },
-          success: function (response) {
-            CouponAutomation.updateAPIStatus(api, response.success);
-          },
-        });
       });
     },
 

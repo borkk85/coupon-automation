@@ -31,7 +31,7 @@ class Settings {
             'sanitize_callback' => 'sanitize_text_field'
         ]);
         
-        register_setting($this->optionGroup, 'ai_api_key', [
+        register_setting($this->optionGroup, 'openai_api_key', [
             'sanitize_callback' => 'sanitize_text_field'
         ]);
         
@@ -92,7 +92,7 @@ class Settings {
                         'type' => 'text',
                         'description' => 'Your AWIN publisher account ID'
                     ],
-                    'ai_api_key' => [
+                    'openai_api_key' => [
                         'label' => 'OpenAI API Key',
                         'type' => 'password',
                         'description' => 'Your OpenAI API key for content generation'

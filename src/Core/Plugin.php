@@ -5,6 +5,7 @@ namespace CouponAutomation\Core;
 use CouponAutomation\Admin\AdminMenu;
 use CouponAutomation\Admin\Settings;
 use CouponAutomation\Admin\AjaxHandler;
+use CouponAutomation\Core\Loader;
 use CouponAutomation\Services\BrandService;
 use CouponAutomation\Services\CouponService;
 

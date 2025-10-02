@@ -70,6 +70,7 @@ class CouponService {
                 'description' => $data['description'] ?? '',
                 'code' => $data['discountCode'] ?? '',
                 'url' => $data['trackingLink'] ?? '',
+                'valid_from' => $data['validFrom'] ?? '',
                 'valid_to' => $data['validTo'] ?? '',
                 'terms' => $data['terms'] ?? '',
                 'type' => empty($data['discountCode']) ? 'Sale' : 'Code',
@@ -80,13 +81,18 @@ class CouponService {
                 'description' => $data['description'] ?? '',
                 'code' => $data['voucher']['code'] ?? '',
                 'url' => $data['urlTracking'] ?? '',
+                'valid_from' => $data['startDate'] ?? '',
                 'valid_to' => $data['endDate'] ?? '',
                 'terms' => $data['terms'] ?? '',
                 'type' => ($data['type'] === 'voucher' && !empty($data['voucher']['code'])) ? 'Code' : 'Sale',
             ];
         }
         
-        return array_map('sanitize_text_field', $fields);
+        $fields = array_map('sanitize_text_field', $fields);
+        $fields['valid_from'] = $this->normalizeDate($fields['valid_from']);
+        $fields['valid_to'] = $this->normalizeDate($fields['valid_to']);
+        
+        return $fields;
     }
     
     /**
@@ -210,6 +216,23 @@ class CouponService {
     }
     
     /**
+     * Normalize date values to Y-m-d for consistent comparisons
+     */
+    private function normalizeDate($date) {
+        if (empty($date)) {
+            return '';
+        }
+
+        $timestamp = strtotime($date);
+
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return wp_date('Y-m-d', $timestamp);
+    }
+
+    /**
      * Get fallback terms
      */
     private function getFallbackTerms() {
@@ -245,7 +268,7 @@ class CouponService {
      * Purge expired coupons
      */
     public function purgeExpiredCoupons() {
-        $today = date('Ymd');
+        $today = wp_date('Y-m-d');
         
         $expiredCoupons = get_posts([
             'post_type' => 'coupons',
@@ -273,15 +296,7 @@ class CouponService {
         $count = 0;
         
         foreach ($expiredCoupons as $coupon) {
-            // Get brand for redirect
-            $brands = wp_get_post_terms($coupon->ID, 'brands');
-            
-            if (!empty($brands) && !is_wp_error($brands)) {
-                $brandSlug = $brands[0]->slug;
-                add_post_meta($coupon->ID, '_redirect_to_brand', home_url('/brands/' . $brandSlug), true);
-            }
-            
-            wp_trash_post($coupon->ID);
+            wp_delete_post($coupon->ID, true);
             $count++;
         }
         

@@ -9,6 +9,7 @@ use CouponAutomation\API\AddRevenueAPI;
 use CouponAutomation\API\AwinAPI;
 use CouponAutomation\API\OpenAIAPI;
 use CouponAutomation\API\YourlsAPI;
+use CouponAutomation\Utils\Logger;
 
 /**
  * Handle AJAX requests
@@ -24,18 +25,27 @@ class AjaxHandler
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            wp_send_json_error('Insufficient permissions');
+            wp_send_json_error(__('Insufficient permissions', 'coupon-automation'));
         }
 
-        // Start processing
-        $processor = new DataProcessor();
-        $result = $processor->startProcessing();
+        delete_option('coupon_automation_stop_requested');
+        delete_transient('fetch_process_running');
 
-        if ($result) {
-            wp_send_json_success('Processing started successfully');
-        } else {
-            wp_send_json_error('Failed to start processing');
+        $next_run = strtotime('tomorrow 3:00am');
+        if ($next_run <= time()) {
+            $next_run = time() + HOUR_IN_SECONDS;
         }
+
+        wp_clear_scheduled_hook('coupon_automation_daily_fetch');
+        wp_schedule_event($next_run, 'daily', 'coupon_automation_daily_fetch');
+
+        $logger = new Logger();
+        $logger->activity(
+            sprintf(__('Automation enabled. Next run scheduled for %s', 'coupon-automation'), date_i18n('M j, g:i a', $next_run)),
+            'info'
+        );
+
+        wp_send_json_success(__('Automation resumed. Sync will run at the scheduled time.', 'coupon-automation'));
     }
 
     /**
@@ -52,9 +62,14 @@ class AjaxHandler
         update_option('coupon_automation_stop_requested', true);
         delete_transient('fetch_process_running');
         delete_transient('api_processed_count');
+        wp_clear_scheduled_hook('coupon_automation_daily_fetch');
 
-        wp_send_json_success('Automation stopped');
+        $logger = new Logger();
+        $logger->activity(__('Automation stopped by user', 'coupon-automation'), 'warning');
+
+        wp_send_json_success(__('Automation stopped', 'coupon-automation'));
     }
+
 
     /**
      * Handle clear flags
@@ -228,6 +243,10 @@ class AjaxHandler
      */
     public function scheduledFetch()
     {
+        if (get_option('coupon_automation_stop_requested', false)) {
+            return;
+        }
+
         $processor = new DataProcessor();
         $processor->startProcessing();
     }

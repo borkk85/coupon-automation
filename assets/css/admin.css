@@ -169,6 +169,42 @@
   color: #fff;
 }
 
+
+/* API test button */
+.ca-input-with-button {
+  position: relative;
+}
+
+.ca-input-with-button .ca-form-input {
+  padding-right: 4.5rem;
+}
+
+.ca-test-btn {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  border: 1px solid var(--ca-border);
+  border-radius: 0.375rem;
+  background: #f3f4f6;
+  color: var(--ca-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.ca-test-btn:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.ca-test-btn:focus {
+  outline: 2px solid var(--ca-primary);
+  outline-offset: 2px;
+}
+
 /* Tabs */
 .ca-tabs {
   display: flex;

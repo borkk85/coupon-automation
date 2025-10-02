@@ -83,6 +83,17 @@ abstract class BaseAPI {
                     ));
                 }
                 
+                if ($status_code === 429) {
+                    $retryAfter = (int) wp_remote_retrieve_header($response, 'retry-after');
+                    if ($retryAfter <= 0) {
+                        $retryAfter = pow(2, $attempt) * 30;
+                    }
+                    $retryAfter = min($retryAfter, 120);
+                    $this->logger->warning(sprintf('Rate limited on %s. Waiting %d seconds before retry.', $url, $retryAfter));
+                    sleep($retryAfter);
+                    continue;
+                }
+                
                 // Don't retry on client errors (4xx)
                 if ($status_code >= 400 && $status_code < 500) {
                     return false;

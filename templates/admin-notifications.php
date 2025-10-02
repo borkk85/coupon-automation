@@ -5,6 +5,40 @@ $totalCount = $notificationManager->getCount();
 
 if (!empty($notifications)):
 ?>
+<?php
+if (!defined('COUPON_AUTOMATION_NOTICES_STYLED')) {
+    define('COUPON_AUTOMATION_NOTICES_STYLED', true);
+    ?>
+    <style>
+      .coupon-automation-notifications { border-left: 4px solid #2563eb; padding: 0; }
+      .coupon-automation-notifications .ca-section-body { padding: 1rem; }
+      .coupon-automation-notifications .ca-notice-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+      .coupon-automation-notifications .ca-notice-header h3 { font-size: 1rem; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+      .coupon-automation-notifications .ca-badge { margin-left: 0.5rem; background: #2563eb; color: #fff; font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+      .coupon-automation-notifications .ca-btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.75rem; border-radius: 0.375rem; border: 0; font-size: 0.75rem; font-weight: 600; text-decoration: none; cursor: pointer; }
+      .coupon-automation-notifications .ca-btn svg { width: 1rem; height: 1rem; }
+      .coupon-automation-notifications .ca-btn-secondary { background: #6b7280; color: #fff; }
+      .coupon-automation-notifications .ca-btn-secondary:hover { background: #4b5563; }
+      .coupon-automation-notifications .ca-btn-primary { background: #2563eb; color: #fff; }
+      .coupon-automation-notifications .ca-btn-primary:hover { background: #1e3a8a; }
+      .coupon-automation-notifications .ca-icon { width: 1.25rem; height: 1.25rem; margin-right: 0.75rem; margin-top: 0.125rem; flex-shrink: 0; }
+      .coupon-automation-notifications .ca-icon--blue { color: #2563eb; }
+      .coupon-automation-notifications .ca-icon--green { color: #059669; }
+      .coupon-automation-notifications .ca-icon--purple { color: #7c3aed; }
+      .coupon-automation-notifications .ca-icon--red { color: #dc2626; }
+      .coupon-automation-notifications .ca-icon--yellow { color: #d97706; }
+      .coupon-automation-notifications .ca-note { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.75rem; display: flex; align-items: flex-start; background: #fff; }
+      .coupon-automation-notifications .ca-note + .ca-note { margin-top: 0.5rem; }
+      .coupon-automation-notifications .ca-note--blue { background: #eff6ff; border-color: #bfdbfe; }
+      .coupon-automation-notifications .ca-note--green { background: #ecfdf5; border-color: #bbf7d0; }
+      .coupon-automation-notifications .ca-note--purple { background: #f5f3ff; border-color: #ddd6fe; }
+      .coupon-automation-notifications .ca-note--red { background: #fef2f2; border-color: #fecaca; }
+      .coupon-automation-notifications .ca-note--yellow { background: #fffbeb; border-color: #fde68a; }
+      .coupon-automation-notifications .ca-muted { color: #6b7280; font-size: 0.75rem; }
+    </style>
+    <?php
+}
+?>
 <div id="notifications-container" class="notice notice-info is-dismissible coupon-automation-notifications">
   <div class="ca-section-body">
     <!-- Header -->
@@ -79,10 +113,10 @@ if (!empty($notifications)):
 
     <!-- Footer -->
     <?php if($totalCount > count($notifications)): ?>
-      <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--ca-border);">
+      <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #e5e7eb;">
         <p class="ca-muted" style="font-size:.875rem;">
           Showing <?php echo count($notifications); ?> of <?php echo $totalCount; ?> notifications
-          <a href="#" id="view-all-notifications" style="color:var(--ca-blue);margin-left:.5rem;">View all</a>
+          <a href="#" id="view-all-notifications" style="color:#2563eb;margin-left:.5rem;">View all</a>
         </p>
       </div>
     <?php endif; ?>
