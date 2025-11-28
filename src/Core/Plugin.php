@@ -62,6 +62,8 @@ class Plugin
         $this->loader->addAction('wp_ajax_clear_notifications', $ajax, 'handleClearNotifications');
         $this->loader->addAction('wp_ajax_mark_notifications_read', $ajax, 'handleMarkNotificationsRead');
         $this->loader->addAction('wp_ajax_purge_expired_coupons', $ajax, 'handlePurgeExpired');
+        $this->loader->addAction('wp_ajax_purge_duplicates', $ajax, 'handlePurgeDuplicates');
+        $this->loader->addAction('wp_ajax_test_sync', $ajax, 'handleTestSync');
         $this->loader->addAction('wp_ajax_populate_brands_batch', $ajax, 'handleBrandPopulation');
         $this->loader->addAction('wp_ajax_test_api_connection', $ajax, 'handleTestConnection');
 

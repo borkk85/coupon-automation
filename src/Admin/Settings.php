@@ -34,7 +34,12 @@ class Settings {
         register_setting($this->optionGroup, 'openai_api_key', [
             'sanitize_callback' => 'sanitize_text_field'
         ]);
-        
+
+        register_setting($this->optionGroup, 'openai_model', [
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => 'gpt-4o-mini'
+        ]);
+
         register_setting($this->optionGroup, 'yourls_username', [
             'sanitize_callback' => 'sanitize_text_field'
         ]);

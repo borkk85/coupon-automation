@@ -8,7 +8,7 @@ use CouponAutomation\Utils\Logger;
 use CouponAutomation\Utils\NotificationManager;
 
 /**
- * Main data processing service with enhanced error handling and debugging
+ * Main data processing service with enhanced error handling
  */
 class DataProcessor
 {
@@ -34,75 +34,94 @@ class DataProcessor
         $this->logger = new Logger();
         $this->notifications = new NotificationManager();
         $this->awinWindowStart = time();
+        $this->batchSize = max(1, (int) get_option('coupon_automation_batch_size', 5));
 
-        error_log('[CA] DataProcessor instantiated at ' . current_time('mysql'));
     }
 
     /**
      * Start processing data from APIs with status tracking
+     *
+     * @param bool $dryRun If true, simulates processing without creating posts
+     * @return array|bool Returns dry-run results array if $dryRun=true, bool otherwise
      */
-    public function startProcessing()
+    public function startProcessing($dryRun = false)
     {
-        error_log('[CA] ========== SYNC STARTED ========== ' . current_time('mysql'));
-        error_log('[CA] Current timestamp: ' . current_time('timestamp'));
+        // Skip locks and status updates in dry-run mode
+        if (!$dryRun) {
+            // Check if already running
+            $isRunning = get_transient('fetch_process_running');
 
-        // Check if already running
-        $isRunning = get_transient('fetch_process_running');
-        error_log('[CA] Process running check: ' . ($isRunning ? 'YES (blocking)' : 'NO'));
+            if ($isRunning) {
+                $this->logger->warning('Processing already running');
+                return false;
+            }
 
-        if ($isRunning) {
-            $this->logger->warning('Processing already running');
-            error_log('[CA] ABORT: Processing already running - exiting');
-            return false;
+            $stopRequested = get_option('coupon_automation_stop_requested', false);
+
+            if ($stopRequested) {
+                $this->logger->warning('Sync skipped because a stop was requested.');
+                $this->logger->activity('Sync skipped - automation is currently stopped.', 'warning');
+                return false;
+            }
+
+            // Set running flag and status
+            set_transient('fetch_process_running', true, 30 * MINUTE_IN_SECONDS);
+            update_option('coupon_automation_sync_status', 'running');
+
+            $startTime = current_time('timestamp');
+            update_option('coupon_automation_last_sync_start', $startTime);
+        } else {
+            // Dry-run mode
+            $this->logger->info('[CA-DRYRUN] Starting test sync');
         }
 
-        $stopRequested = get_option('coupon_automation_stop_requested', false);
-        error_log('[CA] Stop requested check: ' . ($stopRequested ? 'YES (blocking)' : 'NO'));
-
-        if ($stopRequested) {
-            $this->logger->warning('Sync skipped because a stop was requested.');
-            $this->logger->activity('Sync skipped - automation is currently stopped.', 'warning');
-            error_log('[CA] ABORT: Stop was requested - exiting');
-            return false;
+        // Try to avoid premature timeouts on long runs
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
         }
 
-        // Set running flag and status
-        set_transient('fetch_process_running', true, 30 * MINUTE_IN_SECONDS);
-        update_option('coupon_automation_sync_status', 'running');
+        // Register a shutdown handler so we log and clear the flag if PHP bails out unexpectedly
+        $logger = $this->logger;
+        $notifications = $this->notifications;
+        register_shutdown_function(function () use ($logger, $notifications) {
+            if (get_transient('fetch_process_running')) {
+                $lastError = error_get_last();
+                $message = '[CA] Sync aborted unexpectedly';
+                if ($lastError) {
+                    $message .= sprintf(' - %s in %s:%d', $lastError['message'], $lastError['file'], $lastError['line']);
+                } else {
+                    $message .= ' - no error captured';
+                }
 
-        $startTime = current_time('timestamp');
-        update_option('coupon_automation_last_sync_start', $startTime);
-        error_log('[CA] Set sync status to RUNNING at timestamp: ' . $startTime);
+                $logger->error($message);
+                $notifications->add('error', [
+                    'message' => 'Sync aborted unexpectedly. ' . ($lastError['message'] ?? 'No error reported.')
+                ]);
+                delete_transient('fetch_process_running');
+            }
+        });
 
         // Log activity
         $this->logger->activity('Sync started', 'start');
-        error_log('[CA] Activity logged: Sync started');
 
         try {
             // Reset stats
             $this->stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
-            error_log('[CA] Stats reset: ' . json_encode($this->stats));
 
             // Process AddRevenue data
-            error_log('[CA] --- Starting AddRevenue processing ---');
             $this->processAddRevenue();
-            error_log('[CA] AddRevenue processing completed. Stats: ' . json_encode($this->stats));
 
             // Check for stop request mid-process
             if (get_option('coupon_automation_stop_requested', false)) {
-                error_log('[CA] Stop requested detected after AddRevenue processing');
                 $this->handleStopRequest();
                 return false;
             }
 
             // Process AWIN data
-            error_log('[CA] --- Starting AWIN processing ---');
             $this->processAwin();
-            error_log('[CA] AWIN processing completed. Final stats: ' . json_encode($this->stats));
 
             // Final stop check
             if (get_option('coupon_automation_stop_requested', false)) {
-                error_log('[CA] Stop requested detected after AWIN processing');
                 $this->handleStopRequest();
                 return false;
             }
@@ -112,10 +131,6 @@ class DataProcessor
             $completionTime = current_time('timestamp');
             update_option('coupon_automation_last_sync', $completionTime);
             update_option('coupon_automation_last_sync_stats', $this->stats);
-
-            error_log('[CA] Sync completed successfully');
-            error_log('[CA] Last sync timestamp set to: ' . $completionTime . ' (' . date('Y-m-d H:i:s', $completionTime) . ')');
-            error_log('[CA] Stats saved: ' . json_encode($this->stats));
 
             // Log completion with notification
             $completionMessage = sprintf(
@@ -135,14 +150,9 @@ class DataProcessor
                 'skipped' => $this->stats['skipped']
             ]);
 
-            error_log('[CA] Completion notification added');
-
             // Schedule next run
             $this->scheduleNextRun();
-        } catch (\Exception $e) {
-            error_log('[CA] EXCEPTION during sync: ' . $e->getMessage());
-            error_log('[CA] Exception trace: ' . $e->getTraceAsString());
-
+        } catch (\Throwable $e) {
             $this->logger->error('Processing failed: ' . $e->getMessage());
             update_option('coupon_automation_sync_status', 'failed');
             update_option('coupon_automation_last_error', $e->getMessage());
@@ -152,24 +162,21 @@ class DataProcessor
                 'message' => 'Sync failed: ' . $e->getMessage()
             ]);
 
-            delete_transient('fetch_process_running');
-            error_log('[CA] Cleaned up after exception');
             return false;
+        } finally {
+            // Always clear the running flag even if a fatal error or type error occurs
+            delete_transient('fetch_process_running');
         }
-
-        delete_transient('fetch_process_running');
-        error_log('[CA] ========== SYNC ENDED SUCCESSFULLY ========== ' . current_time('mysql'));
-        error_log('[CA] Process running flag cleared');
 
         return true;
     }
+
 
     /**
      * Handle stop request during processing
      */
     private function handleStopRequest()
     {
-        error_log('[CA] Handling stop request - cleaning up');
 
         $this->logger->activity('Sync stopped before completion by user.', 'warning');
 
@@ -188,8 +195,6 @@ class DataProcessor
             'skipped' => $this->stats['skipped']
         ]);
 
-        error_log('[CA] Stop notification added: ' . $stopMessage);
-
         delete_transient('fetch_process_running');
         update_option('coupon_automation_sync_status', 'stopped');
     }
@@ -201,27 +206,27 @@ class DataProcessor
     {
         $this->logger->info('Starting AddRevenue processing');
         $this->logger->activity('Processing AddRevenue advertisers', 'info');
-        error_log('[CA] AddRevenue: Starting advertiser fetch');
 
         // Check if API is configured
         if (empty(get_option('addrevenue_api_key'))) {
             $this->logger->warning('AddRevenue API not configured');
             $this->stats['skipped']++;
-            error_log('[CA] AddRevenue: API key not configured - skipping');
             return;
         }
 
         try {
             // Get advertisers and campaigns
-            error_log('[CA] AddRevenue: Fetching advertisers and campaigns');
             $advertisers = $this->addRevenueAPI->getAdvertisers();
             $campaigns = $this->addRevenueAPI->getCampaigns();
 
-            error_log('[CA] AddRevenue: Fetched ' . count($advertisers) . ' advertisers and ' . count($campaigns) . ' campaigns');
+            $this->logger->info(sprintf(
+                'AddRevenue fetched %d advertisers and %d campaigns',
+                is_array($advertisers) ? count($advertisers) : 0,
+                is_array($campaigns) ? count($campaigns) : 0
+            ));
 
             if (empty($advertisers)) {
                 $this->logger->warning('No AddRevenue advertisers found');
-                error_log('[CA] AddRevenue: No advertisers returned');
                 return;
             }
 
@@ -229,7 +234,6 @@ class DataProcessor
             foreach ($advertisers as $advertiser) {
                 // Check for stop request
                 if (get_option('coupon_automation_stop_requested', false)) {
-                    error_log('[CA] AddRevenue: Stop requested at advertiser #' . $processedCount);
                     $this->logger->info('Processing stopped by user');
                     break;
                 }
@@ -254,10 +258,9 @@ class DataProcessor
                         continue;
                     }
 
-                    error_log('[CA] AddRevenue: Processing brand "' . $brandName . '" with ' . count($advertiserCampaigns) . ' campaigns');
 
                     // Process brand
-                    $brand = $this->brandService->findOrCreateBrand($brandName);
+                    $brand = $this->brandService->findOrCreateBrand($brandName, 'addrevenue');
 
                     if ($brand) {
                         // Update brand meta
@@ -275,21 +278,29 @@ class DataProcessor
                                         'brand' => $brandName,
                                         'id' => $couponId
                                     ]);
-                                    error_log('[CA] AddRevenue: Created coupon ID ' . $couponId . ' for ' . $brandName);
                                 }
                             } catch (\Exception $e) {
                                 $this->logger->error('Failed to process coupon for ' . $brandName . ': ' . $e->getMessage());
                                 $this->stats['failed']++;
-                                error_log('[CA] AddRevenue: Failed coupon for ' . $brandName . ' - ' . $e->getMessage());
+
                             }
                         }
                     }
 
                     $processedCount++;
+                    if ($processedCount % 25 === 0) {
+                        $this->logger->info(sprintf(
+                            'AddRevenue progress: %d advertisers processed (processed=%d, failed=%d, skipped=%d)',
+                            $processedCount,
+                            $this->stats['processed'],
+                            $this->stats['failed'],
+                            $this->stats['skipped']
+                        ));
+                    }
                 } catch (\Exception $e) {
                     $this->logger->error('Failed to process AddRevenue advertiser: ' . $e->getMessage());
                     $this->stats['failed']++;
-                    error_log('[CA] AddRevenue: Failed advertiser - ' . $e->getMessage());
+
                     continue;
                 }
 
@@ -301,10 +312,8 @@ class DataProcessor
         } catch (\Exception $e) {
             $this->logger->error('AddRevenue API error: ' . $e->getMessage());
             $this->logger->activity('AddRevenue processing failed: ' . $e->getMessage(), 'error');
-            error_log('[CA] AddRevenue: API error - ' . $e->getMessage());
-        }
 
-        error_log('[CA] AddRevenue: Complete - Processed: ' . $this->stats['processed'] . ', Failed: ' . $this->stats['failed']);
+        }
         $this->logger->info(sprintf(
             "AddRevenue complete - Processed: %d, Failed: %d",
             $this->stats['processed'],
@@ -319,26 +328,25 @@ class DataProcessor
     {
         $this->logger->info('Starting AWIN processing');
         $this->logger->activity('Processing AWIN promotions', 'info');
-        error_log('[CA] AWIN: Starting promotion fetch');
 
         // Check if API is configured
         if (empty(get_option('awin_api_token')) || empty(get_option('awin_publisher_id'))) {
             $this->logger->warning('AWIN API not configured');
             $this->stats['skipped']++;
-            error_log('[CA] AWIN: API not configured - skipping');
             return;
         }
 
         try {
             // Get promotions
-            error_log('[CA] AWIN: Fetching promotions');
             $promotions = $this->awinAPI->getPromotions();
 
-            error_log('[CA] AWIN: Fetched ' . count($promotions) . ' promotions');
+            $this->logger->info(sprintf(
+                'AWIN fetched %d promotions',
+                is_array($promotions) ? count($promotions) : 0
+            ));
 
             if (empty($promotions)) {
                 $this->logger->warning('No AWIN promotions found');
-                error_log('[CA] AWIN: No promotions returned');
                 return;
             }
 
@@ -348,7 +356,6 @@ class DataProcessor
             foreach ($promotions as $promotion) {
                 // Check for stop request
                 if (get_option('coupon_automation_stop_requested', false)) {
-                    error_log('[CA] AWIN: Stop requested at promotion #' . $processedCount);
                     $this->logger->info('Processing stopped by user');
                     break;
                 }
@@ -362,17 +369,14 @@ class DataProcessor
                         try {
                             $this->throttleAwinRequests();
                             $this->awinRequestCount++;
-                            error_log('[CA] AWIN: Fetching programme details for advertiser ID ' . $advertiserId);
                             $programmeDetails = $this->awinAPI->getProgrammeDetails($advertiserId);
 
                             if ($programmeDetails && isset($programmeDetails['programmeInfo'])) {
                                 $brandData = $programmeDetails['programmeInfo'];
                                 $brandName = $this->brandService->cleanBrandName($brandData['name']);
 
-                                error_log('[CA] AWIN: Processing brand "' . $brandName . '"');
-
                                 // Process brand
-                                $brand = $this->brandService->findOrCreateBrand($brandName);
+                                $brand = $this->brandService->findOrCreateBrand($brandName, 'awin');
 
                                 if ($brand) {
                                     $this->brandService->updateBrandMeta($brand->term_id, $brandData, 'awin');
@@ -382,7 +386,7 @@ class DataProcessor
                         } catch (\Exception $e) {
                             $this->logger->error('Failed to get AWIN programme details for ' . $advertiserId . ': ' . $e->getMessage());
                             $this->stats['failed']++;
-                            error_log('[CA] AWIN: Failed programme details for ' . $advertiserId . ' - ' . $e->getMessage());
+
                             continue;
                         }
                     }
@@ -403,20 +407,28 @@ class DataProcessor
                                     'brand' => $processedAdvertisers[$advertiserId]->name,
                                     'id' => $couponId
                                 ]);
-                                error_log('[CA] AWIN: Created coupon ID ' . $couponId . ' for ' . $processedAdvertisers[$advertiserId]->name);
                             }
                         } catch (\Exception $e) {
                             $this->logger->error('Failed to process AWIN coupon: ' . $e->getMessage());
                             $this->stats['failed']++;
-                            error_log('[CA] AWIN: Failed coupon - ' . $e->getMessage());
+
                         }
                     }
 
                     $processedCount++;
+                    if ($processedCount % 25 === 0) {
+                        $this->logger->info(sprintf(
+                            'AWIN progress: %d promotions processed (processed=%d, failed=%d, skipped=%d)',
+                            $processedCount,
+                            $this->stats['processed'],
+                            $this->stats['failed'],
+                            $this->stats['skipped']
+                        ));
+                    }
                 } catch (\Exception $e) {
                     $this->logger->error('Failed to process AWIN promotion: ' . $e->getMessage());
                     $this->stats['failed']++;
-                    error_log('[CA] AWIN: Failed promotion - ' . $e->getMessage());
+
                     continue;
                 }
 
@@ -428,10 +440,8 @@ class DataProcessor
         } catch (\Exception $e) {
             $this->logger->error('AWIN API error: ' . $e->getMessage());
             $this->logger->activity('AWIN processing failed: ' . $e->getMessage(), 'error');
-            error_log('[CA] AWIN: API error - ' . $e->getMessage());
-        }
 
-        error_log('[CA] AWIN: Complete - Total processed: ' . $this->stats['processed'] . ', Total failed: ' . $this->stats['failed']);
+        }
         $this->logger->info(sprintf(
             "AWIN complete - Processed: %d, Failed: %d",
             $this->stats['processed'],
@@ -456,7 +466,6 @@ class DataProcessor
         if ($this->awinRequestCount >= $maxRequests) {
             $sleepFor = $window - ($now - $this->awinWindowStart) + 1;
             $sleepFor = max($sleepFor, 10);
-            error_log('[CA] AWIN: Rate limit - sleeping ' . $sleepFor . ' seconds');
             $this->logger->info(sprintf('AWIN rate limit guard active. Sleeping %d seconds.', $sleepFor));
             sleep($sleepFor);
             $this->awinWindowStart = time();
@@ -470,16 +479,14 @@ class DataProcessor
     private function scheduleNextRun()
     {
         $nextScheduled = wp_next_scheduled('coupon_automation_daily_fetch');
-        error_log('[CA] Current next scheduled run: ' . ($nextScheduled ? date('Y-m-d H:i:s', $nextScheduled) : 'None'));
+
 
         if (!$nextScheduled) {
             $nextRun = strtotime('tomorrow 3:00am');
             wp_schedule_event($nextRun, 'daily', 'coupon_automation_daily_fetch');
 
-            error_log('[CA] Scheduled next run for: ' . date('Y-m-d H:i:s', $nextRun));
             $this->logger->info('Scheduled next run for tomorrow 3:00 AM');
         } else {
-            error_log('[CA] Next run already scheduled - no changes needed');
         }
     }
 
@@ -488,7 +495,7 @@ class DataProcessor
      */
     public function clearFlags()
     {
-        error_log('[CA] clearFlags() called - clearing all transients and flags');
+
 
         delete_transient('fetch_process_running');
         delete_transient('api_processed_count');
@@ -500,6 +507,251 @@ class DataProcessor
         delete_transient('awin_promotions_data');
 
         $this->logger->info('All processing flags cleared');
-        error_log('[CA] All flags and caches cleared');
+    }
+
+    /**
+     * Test sync - simulates processing without creating posts
+     * Tests API connectivity and shows what would happen
+     *
+     * @return array Test results with samples and statistics
+     */
+    public function testSync()
+    {
+        $startTime = microtime(true);
+        $this->logger->info('[CA-DRYRUN] Starting test sync');
+
+        $results = [
+            'success' => true,
+            'timestamp' => current_time('mysql'),
+            'api_status' => [],
+            'stats' => [
+                'total_found' => 0,
+                'would_create' => 0,
+                'would_skip' => 0,
+                'errors' => 0
+            ],
+            'samples' => [
+                'coupons' => [],
+                'brands' => []
+            ],
+            'errors' => []
+        ];
+
+        try {
+            // Test AddRevenue API
+            if (!empty(get_option('addrevenue_api_key'))) {
+                try {
+                    $advertisers = $this->addRevenueAPI->getAdvertisers();
+                    $campaigns = $this->addRevenueAPI->getCampaigns();
+
+                    $results['api_status']['addrevenue'] = [
+                        'connected' => true,
+                        'advertisers' => is_array($advertisers) ? count($advertisers) : 0,
+                        'campaigns' => is_array($campaigns) ? count($campaigns) : 0
+                    ];
+
+                    // Sample first SE market advertiser
+                    if (is_array($advertisers)) {
+                        foreach ($advertisers as $advertiser) {
+                            if (isset($advertiser['markets']['SE'])) {
+                                $marketData = $advertiser['markets']['SE'];
+                                $brandName = $marketData['displayName'];
+
+                                // Find campaigns for this advertiser
+                                $advertiserCampaigns = array_filter($campaigns, function ($campaign) use ($brandName) {
+                                    return $campaign['advertiserName'] === $brandName && isset($campaign['markets']['SE']);
+                                });
+
+                                if (!empty($advertiserCampaigns)) {
+                                    // Find first campaign with a non-empty description (market-level or root)
+                                    $testCampaign = null;
+                                    foreach ($advertiserCampaigns as $campaign) {
+                                        $campaignMarket = $campaign['markets']['SE'] ?? [];
+                                        $desc = $campaignMarket['description'] ?? ($campaign['description'] ?? '');
+                                        if (trim($desc) !== '') {
+                                            $testCampaign = $campaign;
+                                            break;
+                                        }
+                                    }
+
+                                    if ($testCampaign === null) {
+                                        error_log('[CA-DRYRUN] AddRevenue test skipped OpenAI: no campaign with description found');
+                                        continue;
+                                    }
+
+                                    $campaignData = $testCampaign['markets']['SE'] ?? [];
+                                    $description = $campaignData['description'] ?? ($testCampaign['description'] ?? '');
+
+                                    // Test OpenAI title generation
+                                    $prompt = get_option('coupon_title_prompt');
+                                    $fullPrompt = $prompt . ' ' . $description;
+
+                                    $aiTitle = $this->couponService->getOpenAI()->generateContent($fullPrompt, 120);
+
+                                    if ($aiTitle) {
+                                        $results['api_status']['openai'] = [
+                                            'connected' => true,
+                                            'model' => get_option('openai_model', 'gpt-4o-mini'),
+                                            'test_generation' => 'Success'
+                                        ];
+
+                                        // Add sample
+                                        $results['samples']['coupons'][] = [
+                                            'brand' => $brandName,
+                                            'description' => substr($description, 0, 100),
+                                            'ai_generated_title' => trim(str_replace(['"', "'"], '', $aiTitle)),
+                                            'code' => $campaignData['discountCode'] ?? ($testCampaign['discountCode'] ?? 'N/A'),
+                                            'type' => !empty($campaignData['discountCode'] ?? $testCampaign['discountCode'] ?? '') ? 'Code' : 'Sale',
+                                            'valid_until' => $campaignData['validUntil'] ?? ($testCampaign['validUntil'] ?? 'N/A'),
+                                            'source' => 'addrevenue'
+                                        ];
+                                    } else {
+                                        error_log('[CA-DRYRUN] OpenAI title generation failed for test - check database logs for details');
+                                        $results['api_status']['openai'] = [
+                                            'connected' => false,
+                                            'error' => 'Failed to generate title'
+                                        ];
+                                    }
+
+                                    $results['stats']['total_found'] += count($advertiserCampaigns);
+
+                                    // Check duplicates
+                                    foreach ($advertiserCampaigns as $campaign) {
+                                        $couponId = $campaign['id'] ?? null;
+                                        if ($couponId) {
+                                            $exists = get_posts([
+                                                'post_type' => 'coupons',
+                                                'meta_key' => 'coupon_id',
+                                                'meta_value' => $couponId,
+                                                'fields' => 'ids',
+                                                'posts_per_page' => 1,
+                                            ]);
+                                            if (empty($exists)) {
+                                                $results['stats']['would_create']++;
+                                            } else {
+                                                $results['stats']['would_skip']++;
+                                            }
+                                        }
+                                    }
+
+                                    break; // Only test one advertiser
+                                }
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    $results['api_status']['addrevenue'] = [
+                        'connected' => false,
+                        'error' => $e->getMessage()
+                    ];
+                    $results['errors'][] = 'AddRevenue API error: ' . $e->getMessage();
+                    $results['stats']['errors']++;
+                }
+            }
+
+            // Test AWIN API
+            if (!empty(get_option('awin_api_token'))) {
+                try {
+                    $promotions = $this->awinAPI->getPromotions();
+
+                    $results['api_status']['awin'] = [
+                        'connected' => true,
+                        'promotions' => is_array($promotions) ? count($promotions) : 0
+                    ];
+
+                    // Sample first promotion
+                    if (is_array($promotions) && !empty($promotions)) {
+                        $firstPromotion = reset($promotions);
+                        $promotionData = $firstPromotion;
+
+                        // Check duplicate
+                        $couponId = $promotionData['promotionId'] ?? null;
+                        $exists = false;
+                        if ($couponId) {
+                            $existingPosts = get_posts([
+                                'post_type' => 'coupons',
+                                'meta_key' => 'coupon_id',
+                                'meta_value' => $couponId,
+                                'fields' => 'ids',
+                                'posts_per_page' => 1,
+                            ]);
+                            $exists = !empty($existingPosts);
+                        }
+
+                        // Add sample if not duplicate
+                        if (!$exists && count($results['samples']['coupons']) < 5) {
+                        $description = $promotionData['description'] ?? '';
+                        $prompt = get_option('coupon_title_prompt');
+                        $fullPrompt = $prompt . ' ' . $description;
+
+                        $aiTitle = false;
+                        if (trim($description) !== '') {
+                            $aiTitle = $this->couponService->getOpenAI()->generateContent($fullPrompt, 120);
+                        }
+
+                            if ($aiTitle) {
+                                $results['samples']['coupons'][] = [
+                                    'brand' => $promotionData['advertiserName'] ?? 'Unknown',
+                                    'description' => substr($description, 0, 100),
+                                    'ai_generated_title' => trim(str_replace(['"', "'"], '', $aiTitle)),
+                                    'code' => $promotionData['voucher']['code'] ?? 'N/A',
+                                    'type' => !empty($promotionData['voucher']['code']) ? 'Code' : 'Sale',
+                                    'valid_until' => $promotionData['endDate'] ?? 'N/A',
+                                    'source' => 'awin'
+                                ];
+                            }
+                        }
+
+                        $results['stats']['total_found'] += count($promotions);
+
+                        // Count how many would be created
+                        foreach ($promotions as $promotion) {
+                            $couponId = $promotion['promotionId'] ?? null;
+                            if ($couponId) {
+                                $exists = get_posts([
+                                    'post_type' => 'coupons',
+                                    'meta_key' => 'coupon_id',
+                                    'meta_value' => $couponId,
+                                    'fields' => 'ids',
+                                    'posts_per_page' => 1,
+                                ]);
+                                if (empty($exists)) {
+                                    $results['stats']['would_create']++;
+                                } else {
+                                    $results['stats']['would_skip']++;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    $results['api_status']['awin'] = [
+                        'connected' => false,
+                        'error' => $e->getMessage()
+                    ];
+                    $results['errors'][] = 'AWIN API error: ' . $e->getMessage();
+                    $results['stats']['errors']++;
+                }
+            }
+
+            $endTime = microtime(true);
+            $results['execution_time'] = round($endTime - $startTime, 2);
+
+            $this->logger->info(sprintf(
+                '[CA-DRYRUN] Test sync complete - Found: %d, Would create: %d, Would skip: %d, Errors: %d',
+                $results['stats']['total_found'],
+                $results['stats']['would_create'],
+                $results['stats']['would_skip'],
+                $results['stats']['errors']
+            ));
+        } catch (\Throwable $e) {
+            $results['success'] = false;
+            $results['errors'][] = 'Fatal error: ' . $e->getMessage();
+            $this->logger->error('[CA-DRYRUN] Test sync failed: ' . $e->getMessage());
+        }
+
+        return $results;
     }
 }
+
+
+

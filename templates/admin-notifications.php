@@ -1,13 +1,14 @@
 <?php
 $notificationManager = new \CouponAutomation\Utils\NotificationManager();
-$allNotifications = $notificationManager->getAll();
+$allNotifications    = $notificationManager->getAll();
 $unreadNotifications = $notificationManager->getUnread();
 
-if (empty($allNotifications)) {
+// Only surface the banner when there is something new to review.
+if (empty($unreadNotifications)) {
     return;
 }
 
-$initialNotifications = !empty($unreadNotifications) ? $unreadNotifications : array_slice($allNotifications, -5);
+$initialNotifications = $unreadNotifications;
 $initialHashes = array_map(static function ($notification) {
     return md5(serialize($notification));
 }, $initialNotifications);
@@ -61,6 +62,13 @@ if (!function_exists('coupon_automation_render_notification_row')) {
             <a href="<?php echo esc_url(get_edit_post_link($notification['data']['id'])); ?>" class="ca-btn ca-btn-primary" style="margin-left:.75rem;padding:.25rem .5rem;">
               <svg class="ca-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
             </a>
+          <?php elseif (isset($notification['type'], $notification['data']['term_id']) && $notification['type'] === 'brand'): ?>
+            <?php $brand_edit_link = get_edit_term_link((int) $notification['data']['term_id'], 'brands'); ?>
+            <?php if ($brand_edit_link): ?>
+              <a href="<?php echo esc_url($brand_edit_link); ?>" class="ca-btn ca-btn-primary" style="margin-left:.75rem;padding:.25rem .5rem;">
+                <svg class="ca-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+              </a>
+            <?php endif; ?>
           <?php endif; ?>
         </div>
         <?php
@@ -172,26 +180,14 @@ if (!defined('COUPON_AUTOMATION_NOTICES_SCRIPTED')) {
     ?>
     <script>
     jQuery(function($){
-      var markAsReadTimer = setTimeout(function(){
-        $.post(ajaxurl, {
-          action: 'mark_notifications_read',
-          nonce: '<?php echo wp_create_nonce('coupon_automation_nonce'); ?>'
-        });
-      }, 5000);
-
       $('#ca-clear-notifications').on('click', function(e){
         e.preventDefault();
-        clearTimeout(markAsReadTimer);
         $.post(ajaxurl, {
           action: 'clear_notifications',
           nonce: '<?php echo wp_create_nonce('coupon_automation_nonce'); ?>'
         }).always(function(){
           $('#notifications-container').fadeOut();
         });
-      });
-
-      $('#notifications-container').on('click', '.notice-dismiss', function(){
-        clearTimeout(markAsReadTimer);
       });
 
       $('#ca-view-all-notifications').on('click', function(e){

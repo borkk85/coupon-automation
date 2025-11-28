@@ -32,14 +32,14 @@ class CouponService {
             $this->logger->info('Coupon already exists: ' . $coupon['id']);
             return false;
         }
-        
+
         // Skip non-SE market coupons for AddRevenue
         if ($apiSource === 'addrevenue' && !isset($couponData['markets']['SE'])) {
             return false;
         }
         
         // Find or create brand
-        $brand = $this->brandService->findOrCreateBrand($advertiserName);
+        $brand = $this->brandService->findOrCreateBrand($advertiserName, $apiSource);
         
         if (!$brand) {
             $this->logger->error('Failed to find or create brand: ' . $advertiserName);
@@ -63,7 +63,7 @@ class CouponService {
      */
     private function extractCouponFields($data, $apiSource) {
         $fields = [];
-        
+
         if ($apiSource === 'addrevenue') {
             $fields = [
                 'id' => $data['id'] ?? '',
@@ -87,11 +87,19 @@ class CouponService {
                 'type' => ($data['type'] === 'voucher' && !empty($data['voucher']['code'])) ? 'Code' : 'Sale',
             ];
         }
-        
+
+        // Preserve raw description for potential restoration if sanitization strips it
+        $rawDescription = $fields['description'] ?? '';
+
         $fields = array_map('sanitize_text_field', $fields);
         $fields['valid_from'] = $this->normalizeDate($fields['valid_from']);
         $fields['valid_to'] = $this->normalizeDate($fields['valid_to']);
-        
+
+        // If sanitization wiped the description but raw had content, fall back to stripped raw
+        if ($fields['description'] === '' && trim($rawDescription) !== '') {
+            $fields['description'] = wp_strip_all_tags($rawDescription);
+        }
+
         return $fields;
     }
     
@@ -114,16 +122,27 @@ class CouponService {
      * Generate coupon title using OpenAI
      */
     private function generateCouponTitle($description) {
+        // Avoid calling AI with empty descriptions
+        if (empty(trim($description))) {
+            $this->logger->warning('Coupon description empty; using fallback title.');
+            return 'Special Offer';
+        }
+
         $prompt = get_option('coupon_title_prompt');
         $fullPrompt = $prompt . ' ' . $description;
-        
-        $title = $this->openAI->generateContent($fullPrompt, 80);
-        
+
+        // Give the model more room for gpt-5-mini but keep output concise
+        $title = $this->openAI->generateContent($fullPrompt, 120);
+
         if ($title) {
             $title = trim(str_replace(['"', "'"], '', $title));
             return $title;
         }
-        
+
+        // Log when falling back to default title
+        $this->logger->warning('OpenAI title generation failed, using fallback. Description: ' . substr($description, 0, 100));
+        error_log('[CA] OpenAI title generation failed - using fallback "Special Offer". Description: ' . substr($description, 0, 100));
+
         return 'Special Offer';
     }
     
@@ -301,7 +320,121 @@ class CouponService {
         }
         
         $this->logger->info('Purged ' . $count . ' expired coupons');
-        
+
         return $count;
+    }
+
+    /**
+     * Purge duplicate coupons based on coupon_id meta field
+     * Keeps the newest post (highest ID) for each duplicate group
+     *
+     * @param bool $dryRun If true, only return preview data without deleting
+     * @return array Array with statistics and affected posts
+     */
+    public function purgeDuplicateCoupons($dryRun = true) {
+        // Get all published/scheduled coupons
+        $allCoupons = get_posts([
+            'post_type' => 'coupons',
+            'post_status' => ['publish', 'future'],
+            'posts_per_page' => -1,
+            'orderby' => 'ID',
+            'order' => 'DESC'
+        ]);
+
+        // Group coupons by coupon_id
+        $groupedByCouponId = [];
+        $postsWithoutCouponId = [];
+
+        foreach ($allCoupons as $coupon) {
+            $couponId = get_post_meta($coupon->ID, 'coupon_id', true);
+
+            if (empty($couponId)) {
+                $postsWithoutCouponId[] = $coupon->ID;
+                continue;
+            }
+
+            if (!isset($groupedByCouponId[$couponId])) {
+                $groupedByCouponId[$couponId] = [];
+            }
+
+            $groupedByCouponId[$couponId][] = [
+                'id' => $coupon->ID,
+                'title' => $coupon->post_title,
+                'date' => $coupon->post_date,
+                'status' => $coupon->post_status
+            ];
+        }
+
+        // Find duplicate groups (groups with 2+ posts)
+        $duplicateGroups = [];
+        $toKeep = [];
+        $toDelete = [];
+
+        foreach ($groupedByCouponId as $couponId => $posts) {
+            if (count($posts) > 1) {
+                // Sort by ID DESC (newest first)
+                usort($posts, function($a, $b) {
+                    return $b['id'] - $a['id'];
+                });
+
+                // Keep the first one (highest ID = newest)
+                $keepPost = array_shift($posts);
+                $toKeep[] = $keepPost;
+
+                // Mark the rest for deletion
+                foreach ($posts as $post) {
+                    $toDelete[] = $post;
+                }
+
+                $duplicateGroups[] = [
+                    'coupon_id' => $couponId,
+                    'keep' => $keepPost,
+                    'delete' => $posts
+                ];
+            }
+        }
+
+        $stats = [
+            'total_coupons' => count($allCoupons),
+            'duplicate_groups' => count($duplicateGroups),
+            'posts_to_keep' => count($toKeep),
+            'posts_to_delete' => count($toDelete),
+            'posts_without_coupon_id' => count($postsWithoutCouponId)
+        ];
+
+        // Log the operation
+        if ($dryRun) {
+            $this->logger->info('Duplicate preview: Found ' . $stats['duplicate_groups'] . ' duplicate groups with ' . $stats['posts_to_delete'] . ' posts to delete');
+        } else {
+            // Actually delete the duplicates
+            $deletedCount = 0;
+            foreach ($toDelete as $post) {
+                $result = wp_delete_post($post['id'], true);
+                if ($result) {
+                    $deletedCount++;
+                    $this->logger->info('Deleted duplicate coupon: ' . $post['id'] . ' - ' . $post['title']);
+                }
+            }
+            $stats['actually_deleted'] = $deletedCount;
+            $this->logger->info('Purged ' . $deletedCount . ' duplicate coupons from ' . $stats['duplicate_groups'] . ' groups');
+        }
+
+        return [
+            'success' => true,
+            'dry_run' => $dryRun,
+            'stats' => $stats,
+            'duplicate_groups' => $duplicateGroups,
+            'posts_without_coupon_id' => $postsWithoutCouponId
+        ];
+    }
+
+    /**
+     * Get OpenAI API instance (for testing)
+     *
+     * @return \CouponAutomation\API\OpenAIAPI
+     */
+    public function getOpenAI()
+    {
+        return $this->openAI;
     }
 }

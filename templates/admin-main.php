@@ -19,6 +19,12 @@
                         </svg>
                         Start Sync
                     </button>
+                    <button id="test-sync-btn" class="ca-btn ca-btn-success">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Test Sync
+                    </button>
                     <button id="stop-automation-btn" class="ca-btn ca-btn-danger">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -36,6 +42,12 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Purge Expired
+                    </button>
+                    <button id="purge-duplicates-btn" class="ca-btn ca-btn-info">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                        Purge Duplicates
                     </button>
                 </div>
             </div>
@@ -255,8 +267,31 @@
                     </div>
                     <div class="ca-form-group">
                         <label class="ca-form-label">Batch Size</label>
-                        <input type="number" name="coupon_automation_batch_size" value="<?php echo get_option('coupon_automation_batch_size', 10); ?>" min="1" max="50" class="ca-form-input" style="width: 120px;" />
+                        <input type="number" name="coupon_automation_batch_size" value="<?php echo get_option('coupon_automation_batch_size', 5); ?>" min="1" max="50" class="ca-form-input" style="width: 120px;" />
                         <p class="ca-form-help">Number of items to process per batch</p>
+                    </div>
+                    <div class="ca-form-group">
+                        <label class="ca-form-label">OpenAI Model</label>
+                        <select name="openai_model" class="ca-form-input" style="width: 300px;">
+                            <option value="gpt-4o-mini" <?php selected(get_option('openai_model', 'gpt-4o-mini'), 'gpt-4o-mini'); ?>>GPT-4o Mini (Fast, Cost-effective) ⚡</option>
+                            <option value="gpt-4o" <?php selected(get_option('openai_model', 'gpt-4o-mini'), 'gpt-4o'); ?>>GPT-4o (Balanced)</option>
+                            <option value="gpt-4-turbo" <?php selected(get_option('openai_model', 'gpt-4o-mini'), 'gpt-4-turbo'); ?>>GPT-4 Turbo (Advanced)</option>
+                            <option value="o1-mini" <?php selected(get_option('openai_model', 'gpt-4o-mini'), 'o1-mini'); ?>>O1 Mini (Reasoning) 🧠</option>
+                            <option value="gpt-5-mini" <?php selected(get_option('openai_model', 'gpt-4o-mini'), 'gpt-5-mini'); ?>>GPT-5 Mini (Latest Reasoning) 🚀</option>
+                        </select>
+                        <p class="ca-form-help">Select the OpenAI model for content generation. GPT-4 models support temperature control for creativity adjustment. O1/GPT-5 models use advanced reasoning but don't support temperature.</p>
+                    </div>
+                    <div class="ca-form-group">
+                        <label class="ca-form-label">API Timeout (seconds)</label>
+                        <input type="number" name="coupon_automation_api_timeout" value="<?php echo get_option('coupon_automation_api_timeout', 45); ?>" min="15" max="180" class="ca-form-input" style="width: 120px;" />
+                        <p class="ca-form-help">Increase if network/API responses are slow</p>
+                    </div>
+                    <div class="ca-form-group">
+                        <label class="ca-form-label">CLI Tip for reliable cron</label>
+                        <p class="ca-form-help">
+                            Run via WP-CLI with higher limits if web cron times out:<br>
+                            <code>php -d memory_limit=512M -d max_execution_time=0 wp cron event run coupon_automation_daily_fetch --path=/var/www/html</code>
+                        </p>
                     </div>
                     <div class="ca-form-group">
                         <label class="ca-form-label">API Timeout (seconds)</label>
@@ -275,6 +310,53 @@
 
 <div id="toast-container"></div>
 
+<!-- Test Sync Modal -->
+<div id="test-sync-modal" class="ca-modal" style="display: none;">
+    <div class="ca-modal-overlay"></div>
+    <div class="ca-modal-content" style="max-width: 900px;">
+        <div class="ca-modal-header">
+            <h3 class="ca-modal-title">Test Sync Results</h3>
+            <button class="ca-modal-close">&times;</button>
+        </div>
+        <div class="ca-modal-body">
+            <div id="test-sync-results" style="display: none;">
+                <!-- Results will be inserted here -->
+            </div>
+            <div id="test-sync-loading" style="display: none; text-align: center; padding: 40px;">
+                <div class="ca-spinner"></div>
+                <p style="margin-top: 20px;">Testing APIs and generating sample titles...<br><small>This may take 30-60 seconds</small></p>
+            </div>
+        </div>
+        <div class="ca-modal-footer">
+            <button class="ca-btn ca-btn-secondary ca-modal-close">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Purge Duplicates Modal -->
+<div id="purge-duplicates-modal" class="ca-modal" style="display: none;">
+    <div class="ca-modal-overlay"></div>
+    <div class="ca-modal-content">
+        <div class="ca-modal-header">
+            <h3 class="ca-modal-title">Purge Duplicate Coupons</h3>
+            <button class="ca-modal-close">&times;</button>
+        </div>
+        <div class="ca-modal-body">
+            <div id="purge-duplicates-preview" style="display: none;">
+                <!-- Preview content will be inserted here -->
+            </div>
+            <div id="purge-duplicates-loading" style="display: none; text-align: center; padding: 20px;">
+                <div class="ca-spinner"></div>
+                <p>Analyzing coupons...</p>
+            </div>
+        </div>
+        <div class="ca-modal-footer">
+            <button id="confirm-purge-btn" class="ca-btn ca-btn-danger" style="display: none;">Confirm Purge</button>
+            <button class="ca-btn ca-btn-secondary ca-modal-close">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <script>
     jQuery(function($) {
         $('.ca-tab').on('click', function(e) {
@@ -284,6 +366,261 @@
             $(this).addClass('active');
             $('.ca-tab-content').removeClass('active');
             $('#' + tabId + '-tab').addClass('active');
+        });
+
+        // Test Sync functionality
+        $('#test-sync-btn').on('click', function() {
+            $('#test-sync-modal').fadeIn(200);
+            $('#test-sync-loading').show();
+            $('#test-sync-results').hide();
+
+            $.ajax({
+                url: couponAutomation.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'test_sync',
+                    nonce: couponAutomation.nonce
+                },
+                success: function(response) {
+                    $('#test-sync-loading').hide();
+
+                    if (response.success) {
+                        const data = response.data;
+                        let html = '';
+
+                        // API Status Section
+                        html += '<div style="margin-bottom: 30px;">';
+                        html += '<h4 style="margin: 0 0 15px; font-size: 18px; font-weight: 600;">API Connection Status</h4>';
+                        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
+
+                        // AddRevenue Status
+                        if (data.api_status.addrevenue) {
+                            const ar = data.api_status.addrevenue;
+                            html += '<div style="padding: 15px; background: ' + (ar.connected ? '#d1fae5' : '#fee2e2') + '; border-radius: 8px;">';
+                            html += '<div style="font-weight: 600; margin-bottom: 5px;">AddRevenue</div>';
+                            html += '<div style="font-size: 14px;">' + (ar.connected ? '✅ Connected' : '❌ Failed') + '</div>';
+                            if (ar.connected) {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #065f46;">' + ar.advertisers + ' advertisers, ' + ar.campaigns + ' campaigns</div>';
+                            } else {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #991b1b;">' + ar.error + '</div>';
+                            }
+                            html += '</div>';
+                        }
+
+                        // AWIN Status
+                        if (data.api_status.awin) {
+                            const awin = data.api_status.awin;
+                            html += '<div style="padding: 15px; background: ' + (awin.connected ? '#d1fae5' : '#fee2e2') + '; border-radius: 8px;">';
+                            html += '<div style="font-weight: 600; margin-bottom: 5px;">AWIN</div>';
+                            html += '<div style="font-size: 14px;">' + (awin.connected ? '✅ Connected' : '❌ Failed') + '</div>';
+                            if (awin.connected) {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #065f46;">' + awin.promotions + ' promotions</div>';
+                            } else {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #991b1b;">' + awin.error + '</div>';
+                            }
+                            html += '</div>';
+                        }
+
+                        // OpenAI Status
+                        if (data.api_status.openai) {
+                            const openai = data.api_status.openai;
+                            html += '<div style="padding: 15px; background: ' + (openai.connected ? '#d1fae5' : '#fee2e2') + '; border-radius: 8px;">';
+                            html += '<div style="font-weight: 600; margin-bottom: 5px;">OpenAI</div>';
+                            html += '<div style="font-size: 14px;">' + (openai.connected ? '✅ Connected' : '❌ Failed') + '</div>';
+                            if (openai.connected) {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #065f46;">Model: ' + openai.model + '</div>';
+                            } else {
+                                html += '<div style="font-size: 12px; margin-top: 5px; color: #991b1b;">' + openai.error + '</div>';
+                            }
+                            html += '</div>';
+                        }
+
+                        html += '</div></div>';
+
+                        // Statistics Section
+                        html += '<div style="margin-bottom: 30px;">';
+                        html += '<h4 style="margin: 0 0 15px; font-size: 18px; font-weight: 600;">Sync Preview</h4>';
+                        html += '<div style="padding: 20px; background: #f9fafb; border-radius: 8px;">';
+                        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; text-align: center;">';
+                        html += '<div><div style="font-size: 32px; font-weight: 700; color: #3b82f6;">' + data.stats.total_found + '</div><div style="font-size: 14px; color: #6b7280; margin-top: 5px;">Total Found</div></div>';
+                        html += '<div><div style="font-size: 32px; font-weight: 700; color: #10b981;">' + data.stats.would_create + '</div><div style="font-size: 14px; color: #6b7280; margin-top: 5px;">Would Create</div></div>';
+                        html += '<div><div style="font-size: 32px; font-weight: 700; color: #f59e0b;">' + data.stats.would_skip + '</div><div style="font-size: 14px; color: #6b7280; margin-top: 5px;">Already Exist</div></div>';
+                        if (data.stats.errors > 0) {
+                            html += '<div><div style="font-size: 32px; font-weight: 700; color: #ef4444;">' + data.stats.errors + '</div><div style="font-size: 14px; color: #6b7280; margin-top: 5px;">Errors</div></div>';
+                        }
+                        html += '</div></div></div>';
+
+                        // Sample AI-Generated Titles
+                        if (data.samples.coupons && data.samples.coupons.length > 0) {
+                            html += '<div style="margin-bottom: 30px;">';
+                            html += '<h4 style="margin: 0 0 15px; font-size: 18px; font-weight: 600;">Sample AI-Generated Titles</h4>';
+                            data.samples.coupons.forEach(function(coupon, index) {
+                                html += '<div style="margin-bottom: 15px; padding: 15px; background: #f9fafb; border-left: 4px solid #3b82f6; border-radius: 4px;">';
+                                html += '<div style="font-weight: 600; color: #1f2937; margin-bottom: 8px;">' + (index + 1) + '. ' + coupon.ai_generated_title + '</div>';
+                                html += '<div style="font-size: 13px; color: #6b7280; margin-bottom: 5px;"><strong>Brand:</strong> ' + coupon.brand + ' | <strong>Type:</strong> ' + coupon.type + ' | <strong>Code:</strong> ' + coupon.code + '</div>';
+                                html += '<div style="font-size: 12px; color: #9ca3af;">Source: ' + coupon.source + ' | Valid until: ' + coupon.validto + '</div>';
+                                html += '</div>';
+                            });
+                            html += '</div>';
+                        }
+
+                        // Errors
+                        if (data.errors && data.errors.length > 0) {
+                            html += '<div style="margin-bottom: 20px;">';
+                            html += '<h4 style="margin: 0 0 15px; font-size: 18px; font-weight: 600; color: #dc2626;">Errors</h4>';
+                            data.errors.forEach(function(error) {
+                                html += '<div style="padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 4px; margin-bottom: 8px; font-size: 13px;">' + error + '</div>';
+                            });
+                            html += '</div>';
+                        }
+
+                        // Footer
+                        html += '<div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">';
+                        html += 'Test completed in ' + data.execution_time + ' seconds';
+                        html += '</div>';
+
+                        $('#test-sync-results').html(html).show();
+                    } else {
+                        $('#test-sync-results').html(
+                            '<div class="ca-alert ca-alert-error">Test sync failed: ' + (response.data || 'Unknown error') + '</div>'
+                        ).show();
+                    }
+                },
+                error: function() {
+                    $('#test-sync-loading').hide();
+                    $('#test-sync-results').html(
+                        '<div class="ca-alert ca-alert-error">Failed to run test sync. Please try again.</div>'
+                    ).show();
+                }
+            });
+        });
+
+        // Purge Duplicates functionality
+        let duplicateData = null;
+
+        $('#purge-duplicates-btn').on('click', function() {
+            $('#purge-duplicates-modal').fadeIn(200);
+            $('#purge-duplicates-loading').show();
+            $('#purge-duplicates-preview').hide();
+            $('#confirm-purge-btn').hide();
+
+            // Preview duplicates
+            $.ajax({
+                url: couponAutomation.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'purge_duplicates',
+                    mode: 'preview',
+                    nonce: couponAutomation.nonce
+                },
+                success: function(response) {
+                    $('#purge-duplicates-loading').hide();
+
+                    if (response.success) {
+                        duplicateData = response.data;
+                        const stats = response.data.stats;
+                        const groups = response.data.duplicate_groups;
+
+                        if (stats.duplicate_groups === 0) {
+                            $('#purge-duplicates-preview').html(
+                                '<div class="ca-alert ca-alert-success">' +
+                                '<strong>No duplicates found!</strong> All coupons are unique.' +
+                                '</div>'
+                            ).show();
+                        } else {
+                            let html = '<div class="ca-alert ca-alert-info">';
+                            html += '<strong>Found ' + stats.duplicate_groups + ' duplicate group(s)</strong><br>';
+                            html += stats.posts_to_delete + ' coupon(s) will be deleted (keeping newest in each group)';
+                            html += '</div>';
+
+                            html += '<div style="max-height: 400px; overflow-y: auto; margin-top: 15px;">';
+
+                            groups.forEach(function(group, index) {
+                                html += '<div class="ca-duplicate-group" style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">';
+                                html += '<div style="font-weight: 600; margin-bottom: 10px; color: #374151;">Group ' + (index + 1) + ' (Coupon ID: ' + group.coupon_id + ')</div>';
+
+                                // Post to keep
+                                html += '<div style="margin-bottom: 8px; padding: 10px; background: #d1fae5; border-left: 3px solid #10b981; border-radius: 4px;">';
+                                html += '<span style="color: #059669; font-weight: 600;">✓ KEEP:</span> ';
+                                html += '<strong>' + group.keep.title + '</strong> (ID: ' + group.keep.id + ', ' + group.keep.date + ')';
+                                html += '</div>';
+
+                                // Posts to delete
+                                group.delete.forEach(function(post) {
+                                    html += '<div style="margin-bottom: 8px; padding: 10px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px;">';
+                                    html += '<span style="color: #dc2626; font-weight: 600;">✗ DELETE:</span> ';
+                                    html += post.title + ' (ID: ' + post.id + ', ' + post.date + ')';
+                                    html += '</div>';
+                                });
+
+                                html += '</div>';
+                            });
+
+                            html += '</div>';
+
+                            $('#purge-duplicates-preview').html(html).show();
+                            $('#confirm-purge-btn').show();
+                        }
+                    } else {
+                        $('#purge-duplicates-preview').html(
+                            '<div class="ca-alert ca-alert-error">Error: ' + (response.data || 'Unknown error') + '</div>'
+                        ).show();
+                    }
+                },
+                error: function() {
+                    $('#purge-duplicates-loading').hide();
+                    $('#purge-duplicates-preview').html(
+                        '<div class="ca-alert ca-alert-error">Failed to analyze duplicates. Please try again.</div>'
+                    ).show();
+                }
+            });
+        });
+
+        $('#confirm-purge-btn').on('click', function() {
+            if (!duplicateData || duplicateData.stats.duplicate_groups === 0) {
+                return;
+            }
+
+            if (!confirm('Are you sure you want to permanently delete ' + duplicateData.stats.posts_to_delete + ' duplicate coupon(s)? This cannot be undone!')) {
+                return;
+            }
+
+            $(this).prop('disabled', true).text('Purging...');
+
+            $.ajax({
+                url: couponAutomation.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'purge_duplicates',
+                    mode: 'execute',
+                    nonce: couponAutomation.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        const deleted = response.data.stats.actually_deleted || response.data.stats.posts_to_delete;
+                        CouponAutomation.showToast('success', 'Successfully deleted ' + deleted + ' duplicate coupon(s)!');
+                        $('#purge-duplicates-modal').fadeOut(200);
+                        setTimeout(function() {
+                            location.reload();
+                        }, 1500);
+                    } else {
+                        CouponAutomation.showToast('error', 'Error: ' + (response.data || 'Unknown error'));
+                        $('#confirm-purge-btn').prop('disabled', false).text('Confirm Purge');
+                    }
+                },
+                error: function() {
+                    CouponAutomation.showToast('error', 'Failed to purge duplicates. Please try again.');
+                    $('#confirm-purge-btn').prop('disabled', false).text('Confirm Purge');
+                }
+            });
+        });
+
+        $('.ca-modal-close').on('click', function() {
+            $(this).closest('.ca-modal').fadeOut(200);
+        });
+
+        $('.ca-modal-overlay').on('click', function() {
+            $(this).closest('.ca-modal').fadeOut(200);
         });
     });
 </script>

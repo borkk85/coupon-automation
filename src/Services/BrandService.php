@@ -5,6 +5,7 @@ namespace CouponAutomation\Services;
 use CouponAutomation\API\OpenAIAPI;
 use CouponAutomation\API\YourlsAPI;
 use CouponAutomation\Utils\Logger;
+use CouponAutomation\Utils\NotificationManager;
 
 /**
  * Service class for brand management
@@ -14,17 +15,19 @@ class BrandService {
     private $openAI;
     private $yourls;
     private $logger;
-    
+    private $notifications;
+
     public function __construct() {
         $this->openAI = new OpenAIAPI();
         $this->yourls = new YourlsAPI();
         $this->logger = new Logger();
+        $this->notifications = new NotificationManager();
     }
-    
+
     /**
      * Find or create brand
      */
-    public function findOrCreateBrand($brandName) {
+    public function findOrCreateBrand($brandName, $source = 'addrevenue') {
         // Clean brand name
         $brandName = $this->cleanBrandName($brandName);
         
@@ -41,9 +44,9 @@ class BrandService {
         }
         
         // Create new brand
-        return $this->createBrand($brandName);
+        return $this->createBrand($brandName, $source);
     }
-    
+
     /**
      * Clean brand name from country codes
      */
@@ -91,7 +94,7 @@ class BrandService {
     /**
      * Create new brand
      */
-    private function createBrand($brandName) {
+    private function createBrand($brandName, $source = 'addrevenue') {
         $result = wp_insert_term($brandName, 'brands', [
             'slug' => sanitize_title($brandName . '-discountcodes')
         ]);
@@ -103,7 +106,14 @@ class BrandService {
         
         $term = get_term($result['term_id'], 'brands');
         $this->logger->info('Created new brand: ' . $brandName);
-        
+
+        // Surface brand creation in admin notifications
+        $this->notifications->add('brand', [
+            'name' => $brandName,
+            'term_id' => $term->term_id ?? null,
+            'source' => $source
+        ]);
+
         return $term;
     }
     
@@ -287,12 +297,16 @@ class BrandService {
         
         $prompt = get_option('why_we_love_prompt');
         $content = $this->openAI->generateContent($prompt, 500);
+        // Log raw AI output for troubleshooting formatting issues
+        error_log('[CA] WhyWeLove raw: ' . ($content ?? 'EMPTY'));
         
         if (!$content) {
             return;
         }
         
         $formatted = $this->formatWhyWeLove($content);
+        // Log formatted HTML to see what is stored
+        error_log('[CA] WhyWeLove formatted: ' . $formatted);
         update_field('why_we_love', $formatted, $termId);
     }
     

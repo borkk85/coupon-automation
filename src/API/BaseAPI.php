@@ -11,12 +11,16 @@ abstract class BaseAPI {
     
     protected $apiKey;
     protected $baseUrl;
-    protected $timeout = 30;
+    protected $timeout = 45;
     protected $retryAttempts = 3;
     protected $logger;
     
     public function __construct() {
         $this->logger = new Logger();
+        $configuredTimeout = (int) get_option('coupon_automation_api_timeout', 45);
+        if ($configuredTimeout > 0) {
+            $this->timeout = max(15, min(180, $configuredTimeout));
+        }
         $this->loadCredentials();
     }
     
@@ -36,41 +40,62 @@ abstract class BaseAPI {
     protected function makeRequest($endpoint, $method = 'GET', $body = null, $headers = []) {
         $url = $this->baseUrl . $endpoint;
         $attempt = 0;
-        
+
         while ($attempt < $this->retryAttempts) {
             $attempt++;
-            
+
             $args = [
                 'method' => $method,
                 'timeout' => $this->timeout,
                 'headers' => array_merge($this->getDefaultHeaders(), $headers),
             ];
-            
+
             // FIX: Only add body for non-GET requests or when body is an array
             if ($body !== null && $method !== 'GET') {
                 $args['body'] = is_array($body) ? json_encode($body) : $body;
             }
-            
+
             // For GET requests with parameters, append to URL
             if ($method === 'GET' && is_array($body)) {
                 $url = add_query_arg($body, $url);
             }
-            
+
+            // Log request details
+            error_log(sprintf('[CA] API Request - Method: %s, URL: %s, Attempt: %d/%d',
+                $method, $url, $attempt, $this->retryAttempts));
+
             $response = wp_remote_request($url, $args);
             
             if (!is_wp_error($response)) {
                 $status_code = wp_remote_retrieve_response_code($response);
                 $body = wp_remote_retrieve_body($response);
-                
+
+                // Log response status
+                error_log(sprintf('[CA] API Response - Status: %d, Body length: %d bytes',
+                    $status_code, strlen($body)));
+
                 if ($status_code >= 200 && $status_code < 300) {
                     return $this->parseResponse($body);
                 }
-                
+
+                // Log error responses with full body
                 if ($status_code >= 400) {
+                    error_log(sprintf('[CA] API Error Response - Status: %d, Body: %s',
+                        $status_code, substr($body, 0, 500)));
+
+                    // Try to parse error message from response like working example
+                    $error_data = json_decode($body, true);
+                    $error_message = 'Unknown error';
+                    if (isset($error_data['error']['message'])) {
+                        $error_message = $error_data['error']['message'];
+                        error_log('[CA] Parsed API Error Message: ' . $error_message);
+                    }
+
                     $this->logger->error(sprintf(
-                        'API request failed: %s - Status: %d - Response: %s - Attempt: %d',
+                        'API request failed: %s - Status: %d - Error: %s - Response: %s - Attempt: %d',
                         $url,
                         $status_code,
+                        $error_message,
                         $body,
                         $attempt
                     ));
@@ -99,10 +124,14 @@ abstract class BaseAPI {
                     return false;
                 }
             } else {
+                $error_message = $response->get_error_message();
+                error_log(sprintf('[CA] API WP_Error - URL: %s, Error: %s, Attempt: %d',
+                    $url, $error_message, $attempt));
+
                 $this->logger->error(sprintf(
                     'API request error: %s - %s - Attempt: %d',
                     $url,
-                    $response->get_error_message(),
+                    $error_message,
                     $attempt
                 ));
             }

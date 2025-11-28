@@ -35,10 +35,15 @@ class AjaxHandler
         delete_transient('fetch_process_running');
         error_log('[CA] Cleared stop flag and running transient');
 
-        $next_run = strtotime('tomorrow 3:00am');
-        if ($next_run <= time()) {
-            $next_run = time() + HOUR_IN_SECONDS;
+        $timezone = wp_timezone();
+        $now = new \DateTimeImmutable('now', $timezone);
+        $target = $now->setTime(3, 0);
+
+        if ($target <= $now) {
+            $target = $target->modify('+1 day');
         }
+
+        $next_run = $target->getTimestamp();
 
         wp_clear_scheduled_hook('coupon_automation_daily_fetch');
         wp_schedule_event($next_run, 'daily', 'coupon_automation_daily_fetch');
@@ -259,6 +264,56 @@ class AjaxHandler
             wp_send_json_success($message);
         } else {
             wp_send_json_error($message);
+        }
+    }
+
+    /**
+     * Handle purge duplicates request
+     */
+    public function handlePurgeDuplicates()
+    {
+        check_ajax_referer('coupon_automation_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        $mode = isset($_POST['mode']) ? sanitize_text_field($_POST['mode']) : 'preview';
+        $dryRun = ($mode === 'preview');
+
+        $couponService = new CouponService();
+        $result = $couponService->purgeDuplicateCoupons($dryRun);
+
+        if ($result['success']) {
+            wp_send_json_success([
+                'dry_run' => $result['dry_run'],
+                'stats' => $result['stats'],
+                'duplicate_groups' => $result['duplicate_groups'],
+                'posts_without_coupon_id' => $result['posts_without_coupon_id']
+            ]);
+        } else {
+            wp_send_json_error('Failed to purge duplicates');
+        }
+    }
+
+    /**
+     * Handle test sync request (dry-run)
+     */
+    public function handleTestSync()
+    {
+        check_ajax_referer('coupon_automation_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        $processor = new DataProcessor();
+        $results = $processor->testSync();
+
+        if ($results['success']) {
+            wp_send_json_success($results);
+        } else {
+            wp_send_json_error($results);
         }
     }
 
