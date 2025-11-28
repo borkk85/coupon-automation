@@ -22,14 +22,18 @@ class AjaxHandler
      */
     public function handleFetchCoupons()
     {
+        error_log('[CA] Manual fetch triggered via admin button');
+        
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            error_log('[CA] Fetch denied - insufficient permissions');
             wp_send_json_error(__('Insufficient permissions', 'coupon-automation'));
         }
 
         delete_option('coupon_automation_stop_requested');
         delete_transient('fetch_process_running');
+        error_log('[CA] Cleared stop flag and running transient');
 
         $next_run = strtotime('tomorrow 3:00am');
         if ($next_run <= time()) {
@@ -38,6 +42,8 @@ class AjaxHandler
 
         wp_clear_scheduled_hook('coupon_automation_daily_fetch');
         wp_schedule_event($next_run, 'daily', 'coupon_automation_daily_fetch');
+        
+        error_log('[CA] Rescheduled next run for: ' . date('Y-m-d H:i:s', $next_run));
 
         $logger = new Logger();
         $logger->activity(
@@ -53,9 +59,12 @@ class AjaxHandler
      */
     public function handleStopAutomation()
     {
+        error_log('[CA] Stop automation triggered via admin button');
+        
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            error_log('[CA] Stop denied - insufficient permissions');
             wp_send_json_error('Insufficient permissions');
         }
 
@@ -63,6 +72,8 @@ class AjaxHandler
         delete_transient('fetch_process_running');
         delete_transient('api_processed_count');
         wp_clear_scheduled_hook('coupon_automation_daily_fetch');
+        
+        error_log('[CA] Stop flag set, transients cleared, schedule cleared');
 
         $logger = new Logger();
         $logger->activity(__('Automation stopped by user', 'coupon-automation'), 'warning');
@@ -76,6 +87,8 @@ class AjaxHandler
      */
     public function handleClearFlags()
     {
+        error_log('[CA] Clear flags triggered via admin button');
+        
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
@@ -88,6 +101,8 @@ class AjaxHandler
         delete_transient('addrevenue_campaigns_data');
         delete_transient('awin_promotions_data');
         delete_option('coupon_automation_stop_requested');
+        
+        error_log('[CA] All flags and transients cleared successfully');
 
         wp_send_json_success('Flags and transients cleared');
     }
@@ -97,6 +112,8 @@ class AjaxHandler
      */
     public function handleClearNotifications()
     {
+        error_log('[CA] Clear notifications triggered');
+        
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
@@ -105,6 +122,8 @@ class AjaxHandler
 
         $notificationManager = new \CouponAutomation\Utils\NotificationManager();
         $notificationManager->clearAll();
+        
+        error_log('[CA] All notifications cleared');
 
         wp_send_json_success('Notifications cleared');
     }
@@ -114,6 +133,8 @@ class AjaxHandler
      */
     public function handleMarkNotificationsRead()
     {
+        error_log('[CA] Mark notifications as read triggered');
+        
         check_ajax_referer('coupon_automation_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
@@ -121,7 +142,10 @@ class AjaxHandler
         }
 
         $notificationManager = new \CouponAutomation\Utils\NotificationManager();
+        $count = $notificationManager->getUnreadCount();
         $notificationManager->markAllRead();
+        
+        error_log('[CA] Marked ' . $count . ' notifications as read');
 
         wp_send_json_success('Notifications marked as read');
     }
@@ -239,15 +263,35 @@ class AjaxHandler
     }
 
     /**
-     * Scheduled fetch handler
+     * Scheduled fetch handler - THIS IS THE 3AM CRON JOB
      */
     public function scheduledFetch()
     {
-        if (get_option('coupon_automation_stop_requested', false)) {
+        error_log('[CA] ========================================');
+        error_log('[CA] SCHEDULED CRON JOB TRIGGERED at ' . current_time('mysql'));
+        error_log('[CA] Server time: ' . date('Y-m-d H:i:s'));
+        error_log('[CA] WordPress time: ' . current_time('mysql'));
+        error_log('[CA] Next scheduled: ' . (wp_next_scheduled('coupon_automation_daily_fetch') ? date('Y-m-d H:i:s', wp_next_scheduled('coupon_automation_daily_fetch')) : 'Not scheduled'));
+        error_log('[CA] ========================================');
+        
+        // Check if stop was requested
+        $stopRequested = get_option('coupon_automation_stop_requested', false);
+        error_log('[CA] CRON: Stop requested check: ' . ($stopRequested ? 'YES' : 'NO'));
+        
+        if ($stopRequested) {
+            error_log('[CA] CRON: Aborting - stop was requested');
             return;
         }
 
+        error_log('[CA] CRON: Instantiating DataProcessor...');
         $processor = new DataProcessor();
-        $processor->startProcessing();
+        
+        error_log('[CA] CRON: Starting processing...');
+        $result = $processor->startProcessing();
+        
+        error_log('[CA] CRON: Processing result: ' . ($result ? 'SUCCESS' : 'FAILED'));
+        error_log('[CA] ========================================');
+        error_log('[CA] SCHEDULED CRON JOB ENDED at ' . current_time('mysql'));
+        error_log('[CA] ========================================');
     }
 }

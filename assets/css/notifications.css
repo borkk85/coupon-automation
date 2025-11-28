@@ -1,0 +1,135 @@
+:root {
+  --ca-blue: #2563eb;
+  --ca-border: #e5e7eb;
+  --ca-text-muted: #6b7280;
+}
+
+.coupon-automation-notifications {
+  border-left: 4px solid var(--ca-blue);
+  padding: 0;
+}
+
+.coupon-automation-notifications .ca-section-body {
+  padding: 1rem;
+}
+
+.coupon-automation-notifications .ca-notice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.coupon-automation-notifications .ca-notice-header h3 {
+  font-size: 1rem;
+  margin: 0;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coupon-automation-notifications .ca-badge {
+  margin-left: 0.5rem;
+  background: var(--ca-blue);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.coupon-automation-notifications .ca-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.coupon-automation-notifications .ca-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.coupon-automation-notifications .ca-btn-secondary {
+  background: #6b7280;
+  color: #fff;
+}
+
+.coupon-automation-notifications .ca-btn-secondary:hover {
+  background: #4b5563;
+}
+
+.coupon-automation-notifications .ca-btn-primary {
+  background: var(--ca-blue);
+  color: #fff;
+}
+
+.coupon-automation-notifications .ca-btn-primary:hover {
+  background: #1e3a8a;
+}
+
+.coupon-automation-notifications .ca-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.75rem;
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+
+.coupon-automation-notifications .ca-note {
+  border: 1px solid var(--ca-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  align-items: flex-start;
+  background: #fff;
+}
+
+.coupon-automation-notifications .ca-note + .ca-note {
+  margin-top: 0.5rem;
+}
+
+.coupon-automation-notifications .ca-note--blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.coupon-automation-notifications .ca-note--green {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #03543f;
+}
+
+.coupon-automation-notifications .ca-note--purple {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+  color: #4c1d95;
+}
+
+.coupon-automation-notifications .ca-note--red {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #7f1d1d;
+}
+
+.coupon-automation-notifications .ca-note--yellow {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #78350f;
+}
+
+.coupon-automation-notifications .ca-muted {
+  color: var(--ca-text-muted);
+  font-size: 0.75rem;
+}
+
+.coupon-automation-notifications .ca-hidden {
+  display: none;
+}

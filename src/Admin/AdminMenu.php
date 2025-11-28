@@ -33,39 +33,44 @@ class AdminMenu {
      * Enqueue admin assets
      */
     public function enqueueAssets($hook) {
-        if (!in_array($hook, ['settings_page_coupon-automation', 'settings_page_populate-brands'])) {
-            return;
+        $pluginScreens = ['settings_page_coupon-automation', 'settings_page_populate-brands'];
+
+        // Load full admin assets only on plugin pages
+        if (in_array($hook, $pluginScreens, true)) {
+            wp_enqueue_style(
+                'coupon-automation-admin',
+                COUPON_AUTOMATION_PLUGIN_URL . 'assets/css/admin.css',
+                [],
+                COUPON_AUTOMATION_VERSION
+            );
+
+            wp_enqueue_script(
+                'coupon-automation-admin',
+                COUPON_AUTOMATION_PLUGIN_URL . 'assets/js/admin.js',
+                ['jquery'],
+                COUPON_AUTOMATION_VERSION,
+                true
+            );
+
+            wp_localize_script('coupon-automation-admin', 'couponAutomation', [
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('coupon_automation_nonce'),
+                'enableStatusPolling' => false,
+                'strings' => [
+                    'processing' => __('Processing...', 'coupon-automation'),
+                    'success' => __('Success!', 'coupon-automation'),
+                    'error' => __('An error occurred', 'coupon-automation'),
+                ]
+            ]);
         }
-        
-        
-        // Enqueue custom styles
+
+        // Lightweight styling for notifications everywhere else
         wp_enqueue_style(
-            'coupon-automation-admin',
-            COUPON_AUTOMATION_PLUGIN_URL . 'assets/css/admin.css',
+            'coupon-automation-notifications',
+            COUPON_AUTOMATION_PLUGIN_URL . 'assets/css/notifications.css',
             [],
             COUPON_AUTOMATION_VERSION
         );
-        
-        // Enqueue JavaScript
-        wp_enqueue_script(
-            'coupon-automation-admin',
-            COUPON_AUTOMATION_PLUGIN_URL . 'assets/js/admin.js',
-            ['jquery'],
-            COUPON_AUTOMATION_VERSION,
-            true
-        );
-        
-        // Localize script
-        wp_localize_script('coupon-automation-admin', 'couponAutomation', [
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('coupon_automation_nonce'),
-            'enableStatusPolling' => false,
-            'strings' => [
-                'processing' => __('Processing...', 'coupon-automation'),
-                'success' => __('Success!', 'coupon-automation'),
-                'error' => __('An error occurred', 'coupon-automation'),
-            ]
-        ]);
     }
     
     /**
@@ -88,11 +93,11 @@ class AdminMenu {
      */
     public function displayNotifications() {
         $notifications = get_option('coupon_automation_notifications', []);
-        
+
         if (empty($notifications)) {
             return;
         }
-        
+
         include COUPON_AUTOMATION_PLUGIN_DIR . 'templates/admin-notifications.php';
     }
 }
